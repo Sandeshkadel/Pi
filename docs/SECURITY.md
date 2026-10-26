@@ -23,6 +23,12 @@ Never commit `.env`, credentials, tokens, Wi-Fi configuration, or private
 notification content. A value in `.env.example` is illustrative only and is
 not a usable secret. Rotate credentials if they have been exposed.
 
+The WebSocket bearer token must be a high-entropy random value of at least 32
+characters. An eight-digit number is not a safe long-term access token.
+First-run setup displays the strong token once and stores only its SHA-256 hash
+on the Pi. Do not print tokens on each service restart or write them to
+persistent logs.
+
 ## Current limitations
 
 The health endpoint and dashboard are unauthenticated and intended for
@@ -35,7 +41,9 @@ endpoints to an untrusted network.
 The current BLE envelope primitive requires a trusted out-of-band bootstrap
 secret. It is not a complete BLE pairing system; do not use it to provision
 real Wi-Fi credentials until the phone/Pi GATT exchange, user confirmation,
-and operating-system credential handoff are implemented and tested.
+and operating-system credential handoff are implemented and tested. A short
+pairing code requires a separate authenticated, expiring, and rate-limited
+pairing protocol; it must not replace the strong bearer token.
 
 ## Planned permission model
 

@@ -23,9 +23,18 @@ gradle testDebugUnitTest assembleDebug
   heartbeat, displaying connection and authentication failures without
   logging the token.
 - The token remains in memory only and is not saved by the app.
+- The token starts masked and includes an accessible eye control to reveal or
+  hide it while entering.
 - View a permission status list. Sensitive permissions are not requested at
   startup; Bluetooth, microphone, notification access, and Accessibility
   remain unrequested until their user-facing features are implemented.
+
+Run `python -m app.setup --host <PI_PRIVATE_IPV4>` on the Pi once to create the
+connection address and token, as described in [SETUP_PI.md](./SETUP_PI.md).
+The command displays a strong token once and saves only its hash on the Pi.
+The Android app requires a token of at least 32 characters; an eight-digit
+number is not accepted as a permanent network credential. If the token is
+lost, rotate it on the Pi and enter the replacement.
 
 Use a private network address such as
 `ws://192.168.0.10:8000/ws/agent` only when the Pi and phone are on the same
@@ -50,5 +59,7 @@ example address as a real device configuration.
 
 The Python and Android provisioning codecs share a cross-language test vector,
 but the complete provisioning flow is not ready. Do not enter or transfer real
-Wi-Fi credentials. The status dashboard is a separate diagnostic page, not
-the Android app or a replacement for its connection UI.
+Wi-Fi credentials. Grant permissions only when the related feature is
+implemented and you choose to enable it; the app must not request every
+permission at startup. The status dashboard is a separate diagnostic page,
+not the Android app or a replacement for its connection UI.

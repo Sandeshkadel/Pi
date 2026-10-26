@@ -15,6 +15,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -36,6 +38,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.sandeshkadel.piagent.connection.AgentConnectionClient
 import com.sandeshkadel.piagent.connection.ConnectionEndpoint
@@ -66,6 +69,7 @@ private fun PiAgentHome(
 ) {
     var endpoint by remember { mutableStateOf("") }
     var token by remember { mutableStateOf("") }
+    var tokenVisible by remember { mutableStateOf(false) }
     var connectionState by remember {
         mutableStateOf(ConnectionState.Disconnected)
     }
@@ -148,7 +152,32 @@ private fun PiAgentHome(
                         .focusRequester(tokenFocusRequester),
                     label = { Text("Agent token") },
                     singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
+                    visualTransformation = if (tokenVisible) {
+                        VisualTransformation.None
+                    } else {
+                        PasswordVisualTransformation()
+                    },
+                    trailingIcon = {
+                        IconButton(
+                            onClick = { tokenVisible = !tokenVisible },
+                            enabled = !connectionState.isConnecting && !connectionState.isConnected,
+                        ) {
+                            Icon(
+                                painter = androidx.compose.ui.res.painterResource(
+                                    if (tokenVisible) {
+                                        R.drawable.ic_visibility_off
+                                    } else {
+                                        R.drawable.ic_visibility
+                                    },
+                                ),
+                                contentDescription = if (tokenVisible) {
+                                    "Hide agent token"
+                                } else {
+                                    "Show agent token"
+                                },
+                            )
+                        }
+                    },
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Password,
                         imeAction = ImeAction.Done,
@@ -171,6 +200,7 @@ private fun PiAgentHome(
                         onClick = {
                             client.disconnect()
                             token = ""
+                            tokenVisible = false
                             connectionState = ConnectionState.Disconnected
                         },
                         modifier = Modifier.fillMaxWidth(),

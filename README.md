@@ -38,7 +38,6 @@ Requires Python 3.11 or newer.
 py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt -r requirements-dev.txt
-Copy-Item .env.example .env
 ruff check .
 pytest
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --ws-max-size 65536
@@ -46,6 +45,9 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --ws-max-size 65536
 
 Open `http://127.0.0.1:8000/` for the dashboard and
 `http://127.0.0.1:8000/health` for the health check.
+For local WebSocket authentication, run the one-time connection setup in
+[SETUP_PI.md](docs/SETUP_PI.md) with a private Pi address. Development mode
+without a configured token intentionally rejects WebSocket connections.
 
 ## Android shell
 
@@ -72,6 +74,13 @@ direct access from a phone over Wi-Fi.
 - [Security model](docs/SECURITY.md)
 - [API](docs/API.md)
 - [Local testing and emulator validation](docs/TESTING.md)
+
+For initial Pi connection details, run
+`python -m app.setup --host <PI_PRIVATE_IPV4>`. It creates a new `.env` with
+only a strong token hash and shows the WebSocket address and token once. The
+token is intentionally not eight digits. The Pi/phone service still needs
+deployment hardening; production voice, BLE pairing, notifications, and phone
+actions are not implemented.
 
 ## License
 

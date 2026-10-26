@@ -29,21 +29,26 @@ handler is connected, valid non-heartbeat messages receive an explicit
 
 ### Development token setup
 
-Generate a random token locally and store it only in the intended client-side
-secure storage. Do not paste it into chat, source code, or logs. Compute the
-hash in a terminal without putting the token in shell history:
+Run the one-time setup command on the Pi with its private Wi-Fi address:
 
 ```bash
-python -c "import hashlib,getpass; print(hashlib.sha256(getpass.getpass('Agent token: ').encode()).hexdigest())"
+python -m app.setup --host <PI_PRIVATE_IPV4>
 ```
 
-Put only the digest in `.env` as `AGENT_TOKEN_HASH`. Keep `.env` private and
-rotate both sides if the token is exposed.
+It prints the local WebSocket address and a cryptographically random token
+once, and writes only `AGENT_TOKEN_HASH` to a newly created `.env`. The file is
+owner-only on POSIX systems, and setup refuses to overwrite an existing file.
+Save the token in the phone app; the Pi cannot reconstruct it from the hash.
+Do not paste the token into chat, source code, shell history, or persistent
+logs. An eight-digit value is not accepted as a permanent bearer token because
+it can be guessed much more easily than a high-entropy secret.
+If the token is lost or exposed, `--rotate` replaces the hash only when `.env`
+contains exactly the setup-managed hash line. Restart the server after
+rotation; the previously issued token is then rejected.
 
-The Android client must send the bearer token in its WebSocket handshake and
-store it in platform-protected storage when client authentication is
-implemented. Do not expose the current unauthenticated HTTP dashboard to an
-untrusted network.
+The Android client sends the bearer token in its WebSocket handshake and keeps
+it in memory only. Do not expose the current unauthenticated HTTP dashboard to
+an untrusted network.
 
 ## BLE provisioning status
 
