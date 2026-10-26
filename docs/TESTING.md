@@ -14,17 +14,15 @@ python -m pip wheel . --no-deps --no-build-isolation --wheel-dir $env:TEMP
 ```
 
 The Python tests use mocked or in-memory dependencies; they do not require a
-Raspberry Pi, microphone, Bluetooth radio, phone, or local model. The wheel
-must include `dashboard/index.html` so the served dashboard still works after
-installation.
+Raspberry Pi, microphone, Bluetooth radio, phone, or local model. The wheel must include `dashboard/index.html` and `app/setup.py` so the
+dashboard and first-run setup command work after installation.
 
 The first-run connection setup tests verify private IPv4 validation,
 one-time token display, hash-only `.env` contents, refusal to overwrite an
 existing file, token rotation, startup without redisplaying the token,
 environment-token conflict detection, authenticated WebSocket heartbeat, and
-POSIX owner-only permissions. The
-permission-bit check is skipped on Windows because POSIX mode bits are not
-enforced there.
+POSIX owner-only permissions. The permission-bit check is skipped on Windows
+because POSIX mode bits are not enforced there.
 
 ## Android build and unit tests
 
@@ -80,8 +78,6 @@ connectivity to a Raspberry Pi over Wi-Fi.
 - Python wheel: built and confirmed to contain `dashboard/index.html`.
 - Android unit tests: 7 passed (4 provisioning crypto, 3 endpoint/token
   validation); debug APK build passed with the installed local SDK.
-- Android API 36 emulator: confirmed the token field starts masked; its
-  accessible eye control reveals the test-only input and masks it again.
 - Android API 36 emulator: installed and launched the native PiAgent app.
   Connected it through `adb reverse` to the loopback FastAPI server using a
   test-only token; the UI reported an authenticated healthy heartbeat.
