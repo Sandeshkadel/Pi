@@ -1,0 +1,1 @@
+"""Packaged PiAgent dashboard assets."""

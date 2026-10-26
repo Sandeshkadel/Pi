@@ -1,0 +1,62 @@
+agent:
+  name: PiAgent
+  default_mode: permission
+  language: en
+  timezone: auto
+
+voice:
+  sample_rate: 16000
+  channels: 1
+  chunk_ms: 40
+  wake_words:
+    - "hey pi"
+    - "hello pi"
+  silence_timeout_ms: 1200
+  max_command_seconds: 15
+
+llm:
+  provider: ollama
+  model: qwen2.5:1.5b
+  temperature: 0.3
+  max_tokens: 180
+  enabled: true
+
+safety:
+  permission_mode:
+    require_confirmation:
+      - send_message
+      - delete_data
+      - change_settings
+      - make_call
+  auto_mode:
+    allowed_without_confirmation:
+      - read_notification
+      - summarize_notification
+      - open_app
+      - create_reminder
+    always_require_confirmation:
+      - send_message
+      - delete_data
+      - make_call
+      - change_security_settings
+
+notifications:
+  apps:
+    - com.whatsapp
+    - org.telegram.messenger
+    - com.google.android.apps.messaging
+  announce_important_only: true
+  store_history: false
+
+memory:
+  database_path: data/piagent.db
+  store_conversation_history: false
+  conversation_retention_days: 30
+  context_turns: 6
+  audit_retention_days: 90
+
+network:
+  websocket_path: /ws/agent
+  heartbeat_seconds: 10
+  reconnect_min_seconds: 2
+  reconnect_max_seconds: 30
