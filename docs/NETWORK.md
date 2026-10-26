@@ -35,16 +35,20 @@ Run the one-time setup command on the Pi with its private Wi-Fi address:
 python -m app.setup --host <PI_PRIVATE_IPV4>
 ```
 
-It prints the local WebSocket address and a cryptographically random token
-once, and writes only `AGENT_TOKEN_HASH` to a newly created `.env`. The file is
-owner-only on POSIX systems, and setup refuses to overwrite an existing file.
+Add `--start` to start the server immediately after setup. It prints the local
+WebSocket address and a cryptographically random token once, and writes only
+`AGENT_TOKEN_HASH` to a newly created `.env`. The file is owner-only on POSIX
+systems, and setup refuses to overwrite an existing file. On subsequent starts,
+the command validates the existing hash and starts the server without printing
+the token again.
 Save the token in the phone app; the Pi cannot reconstruct it from the hash.
 Do not paste the token into chat, source code, shell history, or persistent
 logs. An eight-digit value is not accepted as a permanent bearer token because
 it can be guessed much more easily than a high-entropy secret.
 If the token is lost or exposed, `--rotate` replaces the hash only when `.env`
-contains exactly the setup-managed hash line. Restart the server after
-rotation; the previously issued token is then rejected.
+contains exactly the setup-managed hash line. Use `--rotate --start` to
+immediately start the server with the new token; otherwise restart the server
+after rotation. The previously issued token is then rejected.
 
 The Android client sends the bearer token in its WebSocket handshake and keeps
 it in memory only. Do not expose the current unauthenticated HTTP dashboard to

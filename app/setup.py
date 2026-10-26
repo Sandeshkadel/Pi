@@ -10,6 +10,9 @@ import tempfile
 from pathlib import Path
 from typing import TextIO
 
+import uvicorn
+from dotenv import dotenv_values
+
 from app.core.security import hash_token, is_valid_token_hash
 
 _PRIVATE_NETWORKS = (
@@ -114,6 +117,28 @@ def _rotate_hash(env_file: Path, token_hash: str) -> None:
         temporary_file.unlink(missing_ok=True)
 
 
+def _read_existing_hash(env_file: Path) -> str:
+    """Load the configured digest without exposing it in command output."""
+    if env_file.is_symlink():
+        raise ValueError(f"{env_file} must not be a symbolic link.")
+    try:
+        values = dotenv_values(env_file)
+    except (OSError, UnicodeError) as error:
+        raise ValueError(f"Could not read {env_file}.") from error
+    token_hash = values.get("AGENT_TOKEN_HASH")
+    if not isinstance(token_hash, str) or not is_valid_token_hash(token_hash):
+        raise ValueError(
+            f"{env_file} must contain a valid AGENT_TOKEN_HASH before PiAgent can start."
+        )
+    inherited_hash = os.environ.get("AGENT_TOKEN_HASH")
+    if inherited_hash is not None and inherited_hash != token_hash:
+        raise ValueError(
+            "The process AGENT_TOKEN_HASH conflicts with the value in "
+            f"{env_file}; unset the process variable before starting."
+        )
+    return token_hash
+
+
 def configure_connection(
     env_file: Path,
     host: str,
@@ -149,6 +174,11 @@ def main(argv: list[str] | None = None, output: TextIO | None = None) -> int:
         help="Revoke the old token and replace a setup-managed .env token hash.",
     )
     parser.add_argument(
+        "--start",
+        action="store_true",
+        help="Start the server after setup; existing tokens are never printed again.",
+    )
+    parser.add_argument(
         "--env-file",
         type=Path,
         default=Path(".env"),
@@ -159,26 +189,59 @@ def main(argv: list[str] | None = None, output: TextIO | None = None) -> int:
 
     try:
         host = validate_pi_host(args.host) if args.host else discover_pi_host()
-        address, token = configure_connection(
-            args.env_file,
-            host,
-            args.port,
-            rotate=args.rotate,
-        )
+        if (
+            args.start
+            and not args.env_file.exists()
+            and os.environ.get("AGENT_TOKEN_HASH") is not None
+        ):
+            raise ValueError(
+                "AGENT_TOKEN_HASH is already set in the process environment; "
+                "unset it before generating a new connection token."
+            )
+        if args.start and args.env_file.exists() and not args.rotate:
+            _read_existing_hash(args.env_file)
+            address = f"ws://{host}:{args.port}/ws/agent"
+            token = None
+        else:
+            address, token = configure_connection(
+                args.env_file,
+                host,
+                args.port,
+                rotate=args.rotate,
+            )
     except (OSError, ValueError) as error:
         parser.exit(2, f"PiAgent setup failed: {error}\n")
 
-    print("PiAgent connection setup complete.", file=stream)
+    print(
+        "PiAgent connection setup complete."
+        if token is not None
+        else "PiAgent connection settings loaded.",
+        file=stream,
+    )
     print(f"WebSocket address: {address}", file=stream)
-    print(f"Access token (shown once; save it in the phone app): {token}", file=stream)
+    if token is not None:
+        print(f"Access token (shown once; save it in the phone app): {token}", file=stream)
     print(f"Pi stores only the token hash in {args.env_file}.", file=stream)
     if args.rotate:
-        print("The previous token is revoked; restart the PiAgent service now.", file=stream)
+        print(
+            "The previous token is revoked."
+            if args.start
+            else "The previous token is revoked; restart the PiAgent service now.",
+            file=stream,
+        )
     print(
         "Security: this is a strong bearer token, not an 8-digit code. "
         "Use ws:// only on a trusted, isolated private network; TLS is not configured.",
         file=stream,
     )
+    if args.start:
+        uvicorn.run(
+            "app.main:app",
+            host=host,
+            port=args.port,
+            env_file=str(args.env_file),
+            ws_max_size=65_536,
+        )
     return 0
 
 

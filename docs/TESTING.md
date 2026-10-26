@@ -20,8 +20,11 @@ installation.
 
 The first-run connection setup tests verify private IPv4 validation,
 one-time token display, hash-only `.env` contents, refusal to overwrite an
-existing file, and POSIX owner-only permissions. The permission-bit check is
-skipped on Windows because POSIX mode bits are not enforced there.
+existing file, token rotation, startup without redisplaying the token,
+environment-token conflict detection, authenticated WebSocket heartbeat, and
+POSIX owner-only permissions. The
+permission-bit check is skipped on Windows because POSIX mode bits are not
+enforced there.
 
 ## Android build and unit tests
 
@@ -72,7 +75,7 @@ connectivity to a Raspberry Pi over Wi-Fi.
 ## Current local verification record
 
 - Python lint: passed.
-- Python test suite: 83 passed, 1 skipped. The POSIX-only `.env` permission
+- Python test suite: 86 passed, 1 skipped. The POSIX-only `.env` permission
   assertion is skipped on Windows.
 - Python wheel: built and confirmed to contain `dashboard/index.html`.
 - Android unit tests: 7 passed (4 provisioning crypto, 3 endpoint/token

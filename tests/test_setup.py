@@ -49,6 +49,75 @@ def test_setup_credentials_authenticate_the_agent_websocket(
             }
 
 
+def test_start_mode_prints_token_once_and_starts_server(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env_file = tmp_path / ".env"
+    server_options: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        "app.setup.uvicorn.run",
+        lambda app, **kwargs: server_options.append({"app": app, **kwargs}),
+    )
+
+    assert main(
+        ["--host", "192.168.50.2", "--env-file", str(env_file), "--start"]
+    ) == 0
+
+    output = capsys.readouterr().out
+    assert "Access token (shown once" in output
+    assert server_options == [
+        {
+            "app": "app.main:app",
+            "host": "192.168.50.2",
+            "port": 8000,
+            "env_file": str(env_file),
+            "ws_max_size": 65_536,
+        }
+    ]
+
+
+def test_starting_again_does_not_print_existing_token(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env_file = tmp_path / ".env"
+    _, token = configure_connection(env_file, "192.168.50.2", 8000)
+    server_options: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        "app.setup.uvicorn.run",
+        lambda app, **kwargs: server_options.append({"app": app, **kwargs}),
+    )
+
+    assert main(
+        ["--host", "192.168.50.2", "--env-file", str(env_file), "--start"]
+    ) == 0
+
+    output = capsys.readouterr().out
+    assert "WebSocket address: ws://192.168.50.2:8000/ws/agent" in output
+    assert "Access token" not in output
+    assert token not in output
+    assert len(server_options) == 1
+
+
+def test_start_rejects_a_conflicting_environment_token_hash(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env_file = tmp_path / ".env"
+    configure_connection(env_file, "192.168.50.2", 8000)
+    monkeypatch.setenv("AGENT_TOKEN_HASH", "a" * 64)
+
+    with pytest.raises(SystemExit) as result:
+        main(["--host", "192.168.50.2", "--env-file", str(env_file), "--start"])
+
+    assert result.value.code == 2
+    assert "conflicts" in capsys.readouterr().err
+
+
 def test_setup_refuses_to_overwrite_existing_environment_file(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

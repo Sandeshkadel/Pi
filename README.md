@@ -76,11 +76,12 @@ direct access from a phone over Wi-Fi.
 - [Local testing and emulator validation](docs/TESTING.md)
 
 For initial Pi connection details, run
-`python -m app.setup --host <PI_PRIVATE_IPV4>`. It creates a new `.env` with
-only a strong token hash and shows the WebSocket address and token once. The
-token is intentionally not eight digits. The Pi/phone service still needs
-deployment hardening; production voice, BLE pairing, notifications, and phone
-actions are not implemented.
+`python -m app.setup --host <PI_PRIVATE_IPV4> --start`. It creates a new
+`.env` with only a strong token hash, shows the WebSocket address and token
+once, and starts the server. On later starts it shows the address but never
+reprints the token. The token is intentionally not eight digits. The Pi/phone
+service still needs deployment hardening; production voice, BLE pairing,
+notifications, and phone actions are not implemented.
 
 ## License
 

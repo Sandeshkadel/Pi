@@ -22,28 +22,33 @@ Connect the Pi to the same trusted Wi-Fi network as the phone, then run setup
 with the Pi's private Wi-Fi address:
 
 ```bash
-python -m app.setup --host <PI_PRIVATE_IPV4>
+python -m app.setup --host <PI_PRIVATE_IPV4> --start
 ```
 
 For example, replace the placeholder with the Pi's actual address in a private
 range such as `192.168.x.x`. The command creates a new private `.env`, prints
 the WebSocket address and a high-entropy token once, and writes only the
-token's SHA-256 hash to the Pi. Enter the printed address and token in the
-Android app. The app keeps the token in memory only; if you need to re-enter
-it later, keep the one-time token in a secure password manager. It cannot be
-recovered from the Pi's hash. Setup refuses to overwrite an existing `.env`;
-do not copy `.env.example` to `.env` before running it. If the token is lost or
-exposed, rotate it with `python -m app.setup --host <PI_PRIVATE_IPV4>
---rotate`, then restart PiAgent and replace the token in the phone app.
-Rotation is limited to the token-only `.env` created by this command; it
-refuses to replace custom environment files.
+token's SHA-256 hash to the Pi. Run this initial command interactively in a
+private terminal; do not redirect its output or start first-run setup under
+systemd, because the one-time token is printed to stdout. Enter the printed
+address and token in the Android app. The app keeps the token in memory only;
+if you need to re-enter it later, keep the one-time token in a secure password
+manager. It cannot be recovered from the Pi's hash. Setup refuses to overwrite an existing `.env`;
+do not copy `.env.example` to `.env` before running it. If the token is lost
+or exposed, rotate it with
+`python -m app.setup --host <PI_PRIVATE_IPV4> --rotate --start`, then replace
+the token in the phone app. Rotation is limited to the token-only `.env`
+created by this command; it refuses to replace custom environment files. On
+subsequent starts, run the same `--start` command: it prints the address but
+never redisplays the token.
 
 The long-term token is intentionally not eight digits. An eight-digit bearer
 token can be guessed and must not authenticate a network connection.
 
-## Run the development service
+## Run the development service manually
 
-To test only on the Pi itself, run the service bound to loopback:
+To test only on the Pi itself without the setup launcher, run the service
+bound to loopback:
 
 ```bash
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --ws-max-size 65536 --env-file .env
