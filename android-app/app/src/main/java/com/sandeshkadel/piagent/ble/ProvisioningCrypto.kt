@@ -16,12 +16,50 @@ import javax.crypto.spec.SecretKeySpec
 import org.json.JSONException
 import org.json.JSONObject
 
+private const val PROVISIONING_NONCE_LENGTH = 12
+private const val PROVISIONING_TAG_LENGTH_BITS = 128
+private const val PROVISIONING_TAG_LENGTH_BYTES = PROVISIONING_TAG_LENGTH_BITS / 8
+private const val PROVISIONING_MAX_CIPHERTEXT_BYTES = 6_144
+private const val PROVISIONING_MAX_ENVELOPE_JSON_BYTES = 8_500
+private val PROVISIONING_HKDF_INFO =
+    "piagent-ble-provisioning-v1".toByteArray(StandardCharsets.US_ASCII)
+
+private fun decodeProvisioningBase64(value: String): ByteArray = try {
+    Base64.getDecoder().decode(value).also { decoded ->
+        require(Base64.getEncoder().encodeToString(decoded) == value) {
+            "Provisioning base64 is not canonical."
+        }
+    }
+} catch (error: IllegalArgumentException) {
+    throw IllegalArgumentException("Provisioning base64 is invalid.", error)
+}
+
+private fun encodeProvisioningUtf8(value: String): ByteArray = try {
+    val encoded = StandardCharsets.UTF_8.newEncoder()
+        .onMalformedInput(CodingErrorAction.REPORT)
+        .onUnmappableCharacter(CodingErrorAction.REPORT)
+        .encode(java.nio.CharBuffer.wrap(value))
+    ByteArray(encoded.remaining()).also(encoded::get)
+} catch (error: CharacterCodingException) {
+    throw IllegalArgumentException("Provisioning text is not valid UTF-8.", error)
+}
+
+private fun decodeProvisioningUtf8(value: ByteArray): String = try {
+    StandardCharsets.UTF_8.newDecoder()
+        .onMalformedInput(CodingErrorAction.REPORT)
+        .onUnmappableCharacter(CodingErrorAction.REPORT)
+        .decode(ByteBuffer.wrap(value))
+        .toString()
+} catch (error: CharacterCodingException) {
+    throw IllegalArgumentException("Authenticated provisioning payload is not valid UTF-8.", error)
+}
+
 class WifiCredentials(val ssid: String, val password: String) {
     override fun toString(): String = "WifiCredentials(ssid=$ssid, password=[REDACTED])"
 
     internal fun validate(): WifiCredentials {
-        val ssidBytes = encodeUtf8(ssid)
-        val passwordBytes = encodeUtf8(password)
+        val ssidBytes = encodeProvisioningUtf8(ssid)
+        val passwordBytes = encodeProvisioningUtf8(password)
         require(ssidBytes.isNotEmpty() && ssidBytes.size <= 32 && ssid.none { it.code < 32 }) {
             "SSID must be 1-32 UTF-8 bytes with no control characters."
         }
@@ -51,7 +89,10 @@ data class ProvisioningEnvelope(
     companion object {
         fun fromJson(json: String): ProvisioningEnvelope {
             try {
-                require(json.toByteArray(StandardCharsets.UTF_8).size <= MAX_ENVELOPE_JSON_BYTES) {
+                require(
+                    json.toByteArray(StandardCharsets.UTF_8).size <=
+                        PROVISIONING_MAX_ENVELOPE_JSON_BYTES,
+                ) {
                     "Provisioning envelope is too large."
                 }
                 val value = JSONObject(json)
@@ -64,9 +105,13 @@ data class ProvisioningEnvelope(
                     ?: throw IllegalArgumentException("Provisioning nonce is invalid.")
                 val ciphertext = value.get("ciphertext") as? String
                     ?: throw IllegalArgumentException("Provisioning ciphertext is invalid.")
-                val nonceBytes = decodeBase64(nonce)
-                val ciphertextBytes = decodeBase64(ciphertext)
-                require(nonceBytes.size == NONCE_LENGTH && ciphertextBytes.size in TAG_LENGTH_BYTES..MAX_CIPHERTEXT_BYTES) {
+                val nonceBytes = decodeProvisioningBase64(nonce)
+                val ciphertextBytes = decodeProvisioningBase64(ciphertext)
+                require(
+                    nonceBytes.size == PROVISIONING_NONCE_LENGTH &&
+                        ciphertextBytes.size in
+                        PROVISIONING_TAG_LENGTH_BYTES..PROVISIONING_MAX_CIPHERTEXT_BYTES,
+                ) {
                     "Provisioning envelope size is invalid."
                 }
                 return ProvisioningEnvelope(UUID.fromString(sessionId), nonce, ciphertext)
@@ -97,7 +142,7 @@ class ProvisioningCrypto(
     fun seal(credentials: WifiCredentials): ProvisioningEnvelope {
         checkUnused()
         val validCredentials = credentials.validate()
-        val nonce = ByteArray(NONCE_LENGTH).also(SecureRandom()::nextBytes)
+        val nonce = ByteArray(PROVISIONING_NONCE_LENGTH).also(SecureRandom()::nextBytes)
         val plaintext = JSONObject()
             .put("ssid", validCredentials.ssid)
             .put("password", validCredentials.password)
@@ -114,9 +159,12 @@ class ProvisioningCrypto(
     fun open(envelope: ProvisioningEnvelope): WifiCredentials {
         checkUnused()
         require(envelope.sessionId == sessionId) { "Provisioning session does not match." }
-        val nonce = decodeBase64(envelope.nonce)
-        val encrypted = decodeBase64(envelope.ciphertext)
-        require(nonce.size == NONCE_LENGTH && encrypted.size in TAG_LENGTH_BYTES..MAX_CIPHERTEXT_BYTES) {
+        val nonce = decodeProvisioningBase64(envelope.nonce)
+        val encrypted = decodeProvisioningBase64(envelope.ciphertext)
+        require(
+            nonce.size == PROVISIONING_NONCE_LENGTH &&
+                encrypted.size in PROVISIONING_TAG_LENGTH_BYTES..PROVISIONING_MAX_CIPHERTEXT_BYTES,
+        ) {
             "Provisioning envelope size is invalid."
         }
 
@@ -126,7 +174,7 @@ class ProvisioningCrypto(
             throw IllegalArgumentException("Provisioning authentication failed.", error)
         }
         val payload = try {
-            JSONObject(decodeUtf8(plaintext))
+            JSONObject(decodeProvisioningUtf8(plaintext))
         } catch (error: JSONException) {
             throw IllegalArgumentException("Authenticated provisioning payload is invalid.", error)
         }
@@ -142,7 +190,11 @@ class ProvisioningCrypto(
 
     private fun cipher(mode: Int, nonce: ByteArray): Cipher =
         Cipher.getInstance("AES/GCM/NoPadding").apply {
-            init(mode, SecretKeySpec(encryptionKey, "AES"), GCMParameterSpec(TAG_LENGTH_BITS, nonce))
+            init(
+                mode,
+                SecretKeySpec(encryptionKey, "AES"),
+                GCMParameterSpec(PROVISIONING_TAG_LENGTH_BITS, nonce),
+            )
             updateAAD(sessionBytes)
         }
 
@@ -158,7 +210,7 @@ class ProvisioningCrypto(
         val pseudorandomKey = extract.doFinal(secret)
         val expand = Mac.getInstance("HmacSHA256")
         expand.init(SecretKeySpec(pseudorandomKey, "HmacSHA256"))
-        expand.update(HKDF_INFO)
+        expand.update(PROVISIONING_HKDF_INFO)
         expand.update(1.toByte())
         return expand.doFinal().copyOf(KEY_LENGTH_BYTES)
     }
@@ -166,12 +218,6 @@ class ProvisioningCrypto(
     companion object {
         private const val MIN_BOOTSTRAP_SECRET_BYTES = 32
         private const val KEY_LENGTH_BYTES = 32
-        private const val NONCE_LENGTH = 12
-        private const val TAG_LENGTH_BITS = 128
-        private const val TAG_LENGTH_BYTES = TAG_LENGTH_BITS / 8
-        private const val MAX_CIPHERTEXT_BYTES = 6_144
-        private const val MAX_ENVELOPE_JSON_BYTES = 8_500
-        private val HKDF_INFO = "piagent-ble-provisioning-v1".toByteArray(StandardCharsets.US_ASCII)
 
         private fun uuidBytes(uuid: UUID): ByteArray =
             ByteBuffer.allocate(16)
@@ -179,30 +225,5 @@ class ProvisioningCrypto(
                 .putLong(uuid.leastSignificantBits)
                 .array()
 
-        private fun decodeBase64(value: String): ByteArray = try {
-            Base64.getDecoder().decode(value)
-        } catch (error: IllegalArgumentException) {
-            throw IllegalArgumentException("Provisioning base64 is invalid.", error)
-        }
-
-        private fun encodeUtf8(value: String): ByteArray = try {
-            val encoded = StandardCharsets.UTF_8.newEncoder()
-                .onMalformedInput(CodingErrorAction.REPORT)
-                .onUnmappableCharacter(CodingErrorAction.REPORT)
-                .encode(java.nio.CharBuffer.wrap(value))
-            ByteArray(encoded.remaining()).also(encoded::get)
-        } catch (error: CharacterCodingException) {
-            throw IllegalArgumentException("Provisioning text is not valid UTF-8.", error)
-        }
-
-        private fun decodeUtf8(value: ByteArray): String = try {
-            StandardCharsets.UTF_8.newDecoder()
-                .onMalformedInput(CodingErrorAction.REPORT)
-                .onUnmappableCharacter(CodingErrorAction.REPORT)
-                .decode(ByteBuffer.wrap(value))
-                .toString()
-        } catch (error: CharacterCodingException) {
-            throw IllegalArgumentException("Authenticated provisioning payload is not valid UTF-8.", error)
-        }
     }
 }

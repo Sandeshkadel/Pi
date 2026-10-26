@@ -7,12 +7,12 @@ to provide audio, notifications, and user-confirmed phone interactions.
 The project is being built in phases. The current implementation includes a
 FastAPI health endpoint, a mobile-friendly read-only status dashboard, an
 authenticated and schema-validated WebSocket protocol, mocked voice/state
-processing, local task/memory foundations, and a minimal Android app shell.
-BLE credential-envelope codecs exist on Python and Android and share a
-cross-language test vector. Real BLE pairing, Android phone connectivity,
-production speech adapters, notifications, phone automation, and Pi deployment
-are not complete. The default WebSocket app still has no connected phone agent
-handler.
+processing, local task/memory foundations, and a native Android connection UI
+for private-network WebSocket authentication and heartbeat checks. BLE
+credential-envelope codecs exist on Python and Android and share a
+cross-language test vector. Real BLE pairing, production speech adapters,
+notifications, phone automation, and Pi deployment are not complete. The
+default WebSocket app still has no command/notification handler.
 
 ## Safety and privacy
 
@@ -50,10 +50,12 @@ Open `http://127.0.0.1:8000/` for the dashboard and
 ## Android shell
 
 Open `android-app/` in Android Studio with Android SDK 35 installed, then run
-the `app` configuration on an Android 10+ device or emulator. The current app
-is a UI shell with tested provisioning-crypto source, but it does not request
-permissions, scan/connect over BLE, or connect to a Pi. Do not send real
-credentials; the pairing and transport flow is not implemented.
+the `app` configuration on an Android 10+ device or emulator. It can connect
+to the authenticated local WebSocket heartbeat when a Pi endpoint and token
+are configured. It does not yet support BLE pairing, voice, notifications, or
+phone actions. Permissions are listed in-app and are requested only when
+their features are available. Do not send real Wi-Fi credentials; pairing and
+credential handoff are not implemented.
 
 The status dashboard is informational only. Keep the development server bound
 to `127.0.0.1`; its health endpoint is unauthenticated and it is not ready for
@@ -69,6 +71,7 @@ direct access from a phone over Wi-Fi.
 - [Local memory](docs/MEMORY.md)
 - [Security model](docs/SECURITY.md)
 - [API](docs/API.md)
+- [Local testing and emulator validation](docs/TESTING.md)
 
 ## License
 
