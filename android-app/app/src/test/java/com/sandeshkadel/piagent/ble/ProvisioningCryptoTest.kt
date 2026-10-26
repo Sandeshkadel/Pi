@@ -60,6 +60,49 @@ class ProvisioningCryptoTest {
     }
 
     @Test
+    fun failedAuthenticationDoesNotConsumeProvisioningSession() {
+        val sessionId = UUID.fromString("00112233-4455-6677-8899-aabbccddeeff")
+        val receiver = ProvisioningCrypto(BOOTSTRAP_SECRET, sessionId)
+        val tamperedCiphertext = Base64.getDecoder().decode(PYTHON_CIPHERTEXT)
+            .also { it[0] = (it[0].toInt() xor 1).toByte() }
+        val tampered = ProvisioningEnvelope(
+            sessionId,
+            "AAECAwQFBgcICQoL",
+            Base64.getEncoder().encodeToString(tamperedCiphertext),
+        )
+
+        assertThrows(IllegalArgumentException::class.java) {
+            receiver.open(tampered)
+        }
+
+        assertEquals(
+            "test network",
+            receiver.open(
+                ProvisioningEnvelope(
+                    sessionId,
+                    "AAECAwQFBgcICQoL",
+                    PYTHON_CIPHERTEXT,
+                ),
+            ).ssid,
+        )
+    }
+
+    @Test
+    fun invalidCredentialsDoNotConsumeSealingSession() {
+        val sender = ProvisioningCrypto(BOOTSTRAP_SECRET, UUID.randomUUID())
+        assertThrows(IllegalArgumentException::class.java) {
+            sender.seal(WifiCredentials("test", "short"))
+        }
+
+        assertEquals("test network", sender.seal(WifiCredentials("test network", "test-password")).let {
+            ProvisioningCrypto(
+                BOOTSTRAP_SECRET,
+                it.sessionId,
+            ).open(it).ssid
+        })
+    }
+
+    @Test
     fun rejectsInvalidCredentialAndEnvelopeShapes() {
         assertThrows(IllegalArgumentException::class.java) {
             WifiCredentials("x".repeat(33), "test-password").validate()

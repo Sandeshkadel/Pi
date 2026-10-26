@@ -64,6 +64,37 @@ def test_tampered_ciphertext_is_rejected() -> None:
         ProvisioningCipher(BOOTSTRAP_SECRET, session_id).open(tampered)
 
 
+def test_invalid_envelope_does_not_consume_valid_provisioning_session() -> None:
+    session_id = uuid.uuid4()
+    envelope = ProvisioningCipher(BOOTSTRAP_SECRET, session_id).seal(
+        WiFiCredentials(ssid="test", password="test-password")
+    )
+    ciphertext = bytearray(base64.b64decode(envelope.ciphertext))
+    ciphertext[0] ^= 1
+    tampered = ProvisioningEnvelope(
+        session_id=session_id,
+        nonce=envelope.nonce,
+        ciphertext=base64.b64encode(ciphertext).decode("ascii"),
+    )
+    receiver = ProvisioningCipher(BOOTSTRAP_SECRET, session_id)
+
+    with pytest.raises(ProvisioningAuthenticationError, match="authentication failed"):
+        receiver.open(tampered)
+
+    assert receiver.open(envelope).ssid == "test"
+
+
+def test_invalid_credentials_do_not_consume_sealing_session() -> None:
+    session_id = uuid.uuid4()
+    sender = ProvisioningCipher(BOOTSTRAP_SECRET, session_id)
+
+    with pytest.raises(ValidationError):
+        sender.seal(WiFiCredentials(ssid="test", password="short"))
+
+    envelope = sender.seal(WiFiCredentials(ssid="test", password="test-password"))
+    assert envelope.session_id == session_id
+
+
 def test_envelope_cannot_be_replayed_in_another_session() -> None:
     sender_session = uuid.uuid4()
     envelope = ProvisioningCipher(BOOTSTRAP_SECRET, sender_session).seal(

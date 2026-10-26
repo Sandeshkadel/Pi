@@ -139,6 +139,7 @@ class ProvisioningCrypto(
         encryptionKey = deriveKey(bootstrapSecret, sessionBytes)
     }
 
+    @Synchronized
     fun seal(credentials: WifiCredentials): ProvisioningEnvelope {
         checkUnused()
         val validCredentials = credentials.validate()
@@ -149,6 +150,7 @@ class ProvisioningCrypto(
             .toString()
             .toByteArray(StandardCharsets.UTF_8)
         val ciphertext = cipher(Cipher.ENCRYPT_MODE, nonce).doFinal(plaintext)
+        consumed.set(true)
         return ProvisioningEnvelope(
             sessionId = sessionId,
             nonce = Base64.getEncoder().encodeToString(nonce),
@@ -156,6 +158,7 @@ class ProvisioningCrypto(
         )
     }
 
+    @Synchronized
     fun open(envelope: ProvisioningEnvelope): WifiCredentials {
         checkUnused()
         require(envelope.sessionId == sessionId) { "Provisioning session does not match." }
@@ -173,6 +176,7 @@ class ProvisioningCrypto(
         } catch (error: AEADBadTagException) {
             throw IllegalArgumentException("Provisioning authentication failed.", error)
         }
+        consumed.set(true)
         val payload = try {
             JSONObject(decodeProvisioningUtf8(plaintext))
         } catch (error: JSONException) {
@@ -199,7 +203,7 @@ class ProvisioningCrypto(
         }
 
     private fun checkUnused() {
-        check(consumed.compareAndSet(false, true)) {
+            check(!consumed.get()) {
             "Provisioning session has already been used."
         }
     }

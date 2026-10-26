@@ -59,8 +59,11 @@ an untrusted network.
 The backend has strict Wi-Fi credential models and a one-time AES-GCM
 provisioning envelope. The envelope uses HKDF-SHA256 with a random session ID
 and authenticated additional data; decrypting consumes the session so the same
-envelope cannot be replayed. Wi-Fi passwords are represented as `SecretStr`
-and must never be logged or stored in the agent database.
+envelope cannot be replayed. An unauthenticated or tampered envelope does not
+consume the session, so a nearby party cannot invalidate a legitimate transfer
+by sending garbage first. Failed Wi-Fi credential validation also does not
+consume the sender session. Wi-Fi passwords are represented as `SecretStr` and
+must never be logged or stored in the agent database.
 
 The bootstrap secret must be exchanged through a trusted out-of-band channel.
 BLE discovery/device names alone do not authenticate a Pi and must not be

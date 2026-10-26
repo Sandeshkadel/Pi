@@ -4,6 +4,7 @@ import base64
 import binascii
 import json
 import os
+import threading
 from uuid import UUID
 
 from cryptography.exceptions import InvalidTag
@@ -97,48 +98,52 @@ class ProvisioningCipher:
         ).derive(bootstrap_secret)
         self._cipher = AESGCM(key)
         self._consumed = False
+        self._lock = threading.Lock()
 
     def seal(self, credentials: WiFiCredentials) -> ProvisioningEnvelope:
         """Encrypt credentials once; callers must not log the returned envelope."""
-        self._ensure_unused()
-        self._consumed = True
-        nonce = os.urandom(12)
-        plaintext = json.dumps(
-            {
-                "ssid": credentials.ssid,
-                "password": credentials.password.get_secret_value(),
-            },
-            separators=(",", ":"),
-        ).encode("utf-8")
-        ciphertext = self._cipher.encrypt(nonce, plaintext, self._session_id.bytes)
-        return ProvisioningEnvelope(
-            session_id=self._session_id,
-            nonce=base64.b64encode(nonce).decode("ascii"),
-            ciphertext=base64.b64encode(ciphertext).decode("ascii"),
-        )
+        with self._lock:
+            self._ensure_unused()
+            plaintext = json.dumps(
+                {
+                    "ssid": credentials.ssid,
+                    "password": credentials.password.get_secret_value(),
+                },
+                separators=(",", ":"),
+            ).encode("utf-8")
+            nonce = os.urandom(12)
+            ciphertext = self._cipher.encrypt(nonce, plaintext, self._session_id.bytes)
+            envelope = ProvisioningEnvelope(
+                session_id=self._session_id,
+                nonce=base64.b64encode(nonce).decode("ascii"),
+                ciphertext=base64.b64encode(ciphertext).decode("ascii"),
+            )
+            self._consumed = True
+            return envelope
 
     def open(self, envelope: ProvisioningEnvelope) -> WiFiCredentials:
         """Authenticate and decrypt one envelope, then permanently consume the session."""
-        self._ensure_unused()
-        self._consumed = True
-        if envelope.session_id != self._session_id:
-            raise ProvisioningAuthenticationError("Provisioning session does not match.")
+        with self._lock:
+            self._ensure_unused()
+            if envelope.session_id != self._session_id:
+                raise ProvisioningAuthenticationError("Provisioning session does not match.")
 
-        nonce = base64.b64decode(envelope.nonce, validate=True)
-        ciphertext = base64.b64decode(envelope.ciphertext, validate=True)
-        try:
-            plaintext = self._cipher.decrypt(nonce, ciphertext, self._session_id.bytes)
-        except InvalidTag as error:
-            raise ProvisioningAuthenticationError(
-                "Provisioning authentication failed."
-            ) from error
+            nonce = base64.b64decode(envelope.nonce, validate=True)
+            ciphertext = base64.b64decode(envelope.ciphertext, validate=True)
+            try:
+                plaintext = self._cipher.decrypt(nonce, ciphertext, self._session_id.bytes)
+            except InvalidTag as error:
+                raise ProvisioningAuthenticationError(
+                    "Provisioning authentication failed."
+                ) from error
+            self._consumed = True
 
-        try:
-            return WiFiCredentials.model_validate_json(plaintext)
-        except (json.JSONDecodeError, ValueError) as error:
-            raise ProvisioningPayloadError(
-                "Authenticated provisioning payload is invalid."
-            ) from error
+            try:
+                return WiFiCredentials.model_validate_json(plaintext)
+            except (json.JSONDecodeError, ValueError) as error:
+                raise ProvisioningPayloadError(
+                    "Authenticated provisioning payload is invalid."
+                ) from error
 
     def _ensure_unused(self) -> None:
         if self._consumed:

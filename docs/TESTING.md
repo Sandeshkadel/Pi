@@ -73,10 +73,10 @@ connectivity to a Raspberry Pi over Wi-Fi.
 ## Current local verification record
 
 - Python lint: passed.
-- Python test suite: 86 passed, 1 skipped. The POSIX-only `.env` permission
+- Python test suite: 88 passed, 1 skipped. The POSIX-only `.env` permission
   assertion is skipped on Windows.
 - Python wheel: built and confirmed to contain `dashboard/index.html`.
-- Android unit tests: 7 passed (4 provisioning crypto, 3 endpoint/token
+- Android unit tests: 9 passed (6 provisioning crypto, 3 endpoint/token
   validation); debug APK build passed with the installed local SDK.
 - Android API 36 emulator: installed and launched the native PiAgent app.
   Connected it through `adb reverse` to the loopback FastAPI server using a
