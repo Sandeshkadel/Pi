@@ -10,7 +10,11 @@ class ProvisioningCryptoTest {
     @Test
     fun opensPythonProvisioningEnvelopeFixture() {
         val sessionId = UUID.fromString("00112233-4455-6677-8899-aabbccddeeff")
-        val receiver = ProvisioningCrypto(BOOTSTRAP_SECRET, sessionId)
+        val receiver = ProvisioningCrypto(
+            BOOTSTRAP_SECRET,
+            sessionId,
+            ProvisioningReplayGuard(),
+        )
 
         val credentials = receiver.open(
             ProvisioningEnvelope(
@@ -49,20 +53,22 @@ class ProvisioningCryptoTest {
             "AAECAwQFBgcICQoL",
             Base64.getEncoder().encodeToString(tamperedCiphertext),
         )
+        val replayGuard = ProvisioningReplayGuard()
         assertThrows(IllegalArgumentException::class.java) {
-            ProvisioningCrypto(BOOTSTRAP_SECRET, sessionId).open(tampered)
+            ProvisioningCrypto(BOOTSTRAP_SECRET, sessionId, replayGuard).open(tampered)
         }
 
         val foreignSessionEnvelope = tampered.copy(sessionId = UUID.randomUUID())
         assertThrows(IllegalArgumentException::class.java) {
-            ProvisioningCrypto(BOOTSTRAP_SECRET, sessionId).open(foreignSessionEnvelope)
+            ProvisioningCrypto(BOOTSTRAP_SECRET, sessionId, replayGuard).open(foreignSessionEnvelope)
         }
     }
 
     @Test
     fun failedAuthenticationDoesNotConsumeProvisioningSession() {
         val sessionId = UUID.fromString("00112233-4455-6677-8899-aabbccddeeff")
-        val receiver = ProvisioningCrypto(BOOTSTRAP_SECRET, sessionId)
+        val replayGuard = ProvisioningReplayGuard()
+        val receiver = ProvisioningCrypto(BOOTSTRAP_SECRET, sessionId, replayGuard)
         val tamperedCiphertext = Base64.getDecoder().decode(PYTHON_CIPHERTEXT)
             .also { it[0] = (it[0].toInt() xor 1).toByte() }
         val tampered = ProvisioningEnvelope(
@@ -77,14 +83,26 @@ class ProvisioningCryptoTest {
 
         assertEquals(
             "test network",
-            receiver.open(
-                ProvisioningEnvelope(
-                    sessionId,
-                    "AAECAwQFBgcICQoL",
-                    PYTHON_CIPHERTEXT,
-                ),
+            ProvisioningCrypto(BOOTSTRAP_SECRET, sessionId, replayGuard).open(
+                ProvisioningEnvelope(sessionId, "AAECAwQFBgcICQoL", PYTHON_CIPHERTEXT),
             ).ssid,
         )
+    }
+
+    @Test
+    fun replayGuardRejectsReplayAcrossCryptoInstances() {
+        val sessionId = UUID.fromString("00112233-4455-6677-8899-aabbccddeeff")
+        val replayGuard = ProvisioningReplayGuard()
+        val envelope = ProvisioningEnvelope(
+            sessionId,
+            "AAECAwQFBgcICQoL",
+            PYTHON_CIPHERTEXT,
+        )
+
+        ProvisioningCrypto(BOOTSTRAP_SECRET, sessionId, replayGuard).open(envelope)
+        assertThrows(IllegalStateException::class.java) {
+            ProvisioningCrypto(BOOTSTRAP_SECRET, sessionId, replayGuard).open(envelope)
+        }
     }
 
     @Test
@@ -98,6 +116,7 @@ class ProvisioningCryptoTest {
             ProvisioningCrypto(
                 BOOTSTRAP_SECRET,
                 it.sessionId,
+                ProvisioningReplayGuard(),
             ).open(it).ssid
         })
     }

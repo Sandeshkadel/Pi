@@ -64,6 +64,12 @@ consume the session, so a nearby party cannot invalidate a legitimate transfer
 by sending garbage first. Failed Wi-Fi credential validation also does not
 consume the sender session. Wi-Fi passwords are represented as `SecretStr` and
 must never be logged or stored in the agent database.
+Receivers must share a `ProvisioningReplayGuard` to reject a replay across
+crypto instances. This guard is bounded and process-local; it is not durable
+across service restarts. The real BLE service must use a fresh expiring
+bootstrap session or durable replay protection before receiving real
+credentials. The BLE GATT transport and Wi-Fi connection handoff are still
+unimplemented.
 
 The bootstrap secret must be exchanged through a trusted out-of-band channel.
 BLE discovery/device names alone do not authenticate a Pi and must not be

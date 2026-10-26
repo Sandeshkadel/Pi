@@ -6,6 +6,7 @@ import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
 import java.security.SecureRandom
 import java.util.Base64
+import java.util.LinkedHashMap
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.crypto.AEADBadTagException
@@ -23,6 +24,33 @@ private const val PROVISIONING_MAX_CIPHERTEXT_BYTES = 6_144
 private const val PROVISIONING_MAX_ENVELOPE_JSON_BYTES = 8_500
 private val PROVISIONING_HKDF_INFO =
     "piagent-ble-provisioning-v1".toByteArray(StandardCharsets.US_ASCII)
+
+class ProvisioningReplayGuard(
+    private val maxSessions: Int = 256,
+    private val ttlMillis: Long = 3_600_000,
+) {
+    private val consumedSessions = LinkedHashMap<UUID, Long>()
+
+    init {
+        require(maxSessions > 0 && ttlMillis > 0) {
+            "Provisioning replay guard limits must be positive."
+        }
+    }
+
+    @Synchronized
+    internal fun consume(sessionId: UUID) {
+        val now = System.nanoTime() / 1_000_000
+        val expired = consumedSessions.filterValues { now - it >= ttlMillis }.keys
+        expired.forEach(consumedSessions::remove)
+        check(sessionId !in consumedSessions) {
+            "Provisioning session has already been used."
+        }
+        check(consumedSessions.size < maxSessions) {
+            "Provisioning replay guard is full; restart provisioning service."
+        }
+        consumedSessions[sessionId] = now
+    }
+}
 
 private fun decodeProvisioningBase64(value: String): ByteArray = try {
     Base64.getDecoder().decode(value).also { decoded ->
@@ -127,6 +155,7 @@ data class ProvisioningEnvelope(
 class ProvisioningCrypto(
     bootstrapSecret: ByteArray,
     private val sessionId: UUID,
+    private val replayGuard: ProvisioningReplayGuard? = null,
 ) {
     private val sessionBytes = uuidBytes(sessionId)
     private val encryptionKey: ByteArray
@@ -161,6 +190,8 @@ class ProvisioningCrypto(
     @Synchronized
     fun open(envelope: ProvisioningEnvelope): WifiCredentials {
         checkUnused()
+        val activeReplayGuard = replayGuard
+            ?: throw IllegalStateException("A shared provisioning replay guard is required.")
         require(envelope.sessionId == sessionId) { "Provisioning session does not match." }
         val nonce = decodeProvisioningBase64(envelope.nonce)
         val encrypted = decodeProvisioningBase64(envelope.ciphertext)
@@ -176,6 +207,7 @@ class ProvisioningCrypto(
         } catch (error: AEADBadTagException) {
             throw IllegalArgumentException("Provisioning authentication failed.", error)
         }
+        activeReplayGuard.consume(sessionId)
         consumed.set(true)
         val payload = try {
             JSONObject(decodeProvisioningUtf8(plaintext))

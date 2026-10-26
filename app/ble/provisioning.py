@@ -5,6 +5,7 @@ import binascii
 import json
 import os
 import threading
+import time
 from uuid import UUID
 
 from cryptography.exceptions import InvalidTag
@@ -20,6 +21,37 @@ class ProvisioningAuthenticationError(ValueError):
 
 class ProvisioningPayloadError(ValueError):
     """Raised when authenticated provisioning content fails schema validation."""
+
+
+class ProvisioningReplayGuard:
+    """Bounded process-local replay guard shared by all receivers in a service."""
+
+    def __init__(self, max_sessions: int = 4096, ttl_seconds: float = 3600) -> None:
+        if max_sessions < 1 or ttl_seconds <= 0:
+            raise ValueError("Replay guard limits must be positive.")
+        self._max_sessions = max_sessions
+        self._ttl_seconds = ttl_seconds
+        self._consumed: dict[UUID, float] = {}
+        self._lock = threading.Lock()
+
+    def consume(self, session_id: UUID) -> None:
+        """Record an authenticated session exactly once, failing closed at capacity."""
+        now = time.monotonic()
+        with self._lock:
+            self._consumed = {
+                identifier: consumed_at
+                for identifier, consumed_at in self._consumed.items()
+                if now - consumed_at < self._ttl_seconds
+            }
+            if session_id in self._consumed:
+                raise ProvisioningAuthenticationError(
+                    "Provisioning session has already been used."
+                )
+            if len(self._consumed) >= self._max_sessions:
+                raise ProvisioningAuthenticationError(
+                    "Provisioning replay guard is full; restart provisioning service."
+                )
+            self._consumed[session_id] = now
 
 
 class StrictProvisioningModel(BaseModel):
@@ -86,7 +118,12 @@ class ProvisioningCipher:
     BLE discovery or a device name alone does not authenticate the Pi.
     """
 
-    def __init__(self, bootstrap_secret: bytes, session_id: UUID) -> None:
+    def __init__(
+        self,
+        bootstrap_secret: bytes,
+        session_id: UUID,
+        replay_guard: ProvisioningReplayGuard | None = None,
+    ) -> None:
         if len(bootstrap_secret) < 32:
             raise ValueError("Provisioning bootstrap secret must be at least 32 bytes.")
         self._session_id = session_id
@@ -99,6 +136,7 @@ class ProvisioningCipher:
         self._cipher = AESGCM(key)
         self._consumed = False
         self._lock = threading.Lock()
+        self._replay_guard = replay_guard
 
     def seal(self, credentials: WiFiCredentials) -> ProvisioningEnvelope:
         """Encrypt credentials once; callers must not log the returned envelope."""
@@ -125,6 +163,10 @@ class ProvisioningCipher:
         """Authenticate and decrypt one envelope, then permanently consume the session."""
         with self._lock:
             self._ensure_unused()
+            if self._replay_guard is None:
+                raise ProvisioningAuthenticationError(
+                    "A shared provisioning replay guard is required."
+                )
             if envelope.session_id != self._session_id:
                 raise ProvisioningAuthenticationError("Provisioning session does not match.")
 
@@ -136,6 +178,7 @@ class ProvisioningCipher:
                 raise ProvisioningAuthenticationError(
                     "Provisioning authentication failed."
                 ) from error
+            self._replay_guard.consume(self._session_id)
             self._consumed = True
 
             try:

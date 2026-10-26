@@ -9,6 +9,7 @@ from app.ble.provisioning import (
     ProvisioningAuthenticationError,
     ProvisioningCipher,
     ProvisioningEnvelope,
+    ProvisioningReplayGuard,
     WiFiCredentials,
 )
 
@@ -34,7 +35,11 @@ def test_encrypted_provisioning_round_trip_and_one_time_use() -> None:
     session_id = uuid.uuid4()
     credentials = WiFiCredentials(ssid="test network", password="test-password")
     sender = ProvisioningCipher(BOOTSTRAP_SECRET, session_id)
-    receiver = ProvisioningCipher(BOOTSTRAP_SECRET, session_id)
+    receiver = ProvisioningCipher(
+        BOOTSTRAP_SECRET,
+        session_id,
+        replay_guard=ProvisioningReplayGuard(),
+    )
 
     envelope = sender.seal(credentials)
     decrypted = receiver.open(envelope)
@@ -61,7 +66,11 @@ def test_tampered_ciphertext_is_rejected() -> None:
     )
 
     with pytest.raises(ProvisioningAuthenticationError, match="authentication failed"):
-        ProvisioningCipher(BOOTSTRAP_SECRET, session_id).open(tampered)
+        ProvisioningCipher(
+            BOOTSTRAP_SECRET,
+            session_id,
+            replay_guard=ProvisioningReplayGuard(),
+        ).open(tampered)
 
 
 def test_invalid_envelope_does_not_consume_valid_provisioning_session() -> None:
@@ -76,7 +85,11 @@ def test_invalid_envelope_does_not_consume_valid_provisioning_session() -> None:
         nonce=envelope.nonce,
         ciphertext=base64.b64encode(ciphertext).decode("ascii"),
     )
-    receiver = ProvisioningCipher(BOOTSTRAP_SECRET, session_id)
+    receiver = ProvisioningCipher(
+        BOOTSTRAP_SECRET,
+        session_id,
+        replay_guard=ProvisioningReplayGuard(),
+    )
 
     with pytest.raises(ProvisioningAuthenticationError, match="authentication failed"):
         receiver.open(tampered)
@@ -103,7 +116,35 @@ def test_envelope_cannot_be_replayed_in_another_session() -> None:
     receiver_session = uuid.uuid4()
 
     with pytest.raises(ProvisioningAuthenticationError, match="does not match"):
-        ProvisioningCipher(BOOTSTRAP_SECRET, receiver_session).open(envelope)
+        ProvisioningCipher(
+            BOOTSTRAP_SECRET,
+            receiver_session,
+            replay_guard=ProvisioningReplayGuard(),
+        ).open(envelope)
+
+
+def test_replay_guard_rejects_replay_across_cipher_instances() -> None:
+    session_id = uuid.uuid4()
+    envelope = ProvisioningCipher(BOOTSTRAP_SECRET, session_id).seal(
+        WiFiCredentials(ssid="test", password="test-password")
+    )
+    replay_guard = ProvisioningReplayGuard()
+
+    assert (
+        ProvisioningCipher(BOOTSTRAP_SECRET, session_id, replay_guard).open(envelope).ssid
+        == "test"
+    )
+    with pytest.raises(ProvisioningAuthenticationError, match="already been used"):
+        ProvisioningCipher(BOOTSTRAP_SECRET, session_id, replay_guard).open(envelope)
+
+
+def test_open_requires_shared_replay_guard() -> None:
+    session_id = uuid.uuid4()
+    envelope = ProvisioningCipher(BOOTSTRAP_SECRET, session_id).seal(
+        WiFiCredentials(ssid="test", password="test-password")
+    )
+    with pytest.raises(ProvisioningAuthenticationError, match="replay guard is required"):
+        ProvisioningCipher(BOOTSTRAP_SECRET, session_id).open(envelope)
 
 
 def test_provisioning_rejects_short_bootstrap_secret() -> None:

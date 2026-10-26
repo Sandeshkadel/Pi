@@ -43,7 +43,9 @@ secret. It is not a complete BLE pairing system; do not use it to provision
 real Wi-Fi credentials until the phone/Pi GATT exchange, user confirmation,
 and operating-system credential handoff are implemented and tested. A short
 pairing code requires a separate authenticated, expiring, and rate-limited
-pairing protocol; it must not replace the strong bearer token.
+pairing protocol; it must not replace the strong bearer token. The codec's
+replay guard is process-local and loses its history on restart; a production
+BLE service must rotate/expire bootstrap sessions or persist replay protection.
 
 ## Planned permission model
 
