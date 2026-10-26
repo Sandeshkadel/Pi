@@ -1,5 +1,6 @@
 package com.sandeshkadel.piagent
 
+import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardActions
@@ -22,9 +24,12 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -34,7 +39,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -43,6 +50,11 @@ import androidx.compose.ui.unit.dp
 import com.sandeshkadel.piagent.connection.AgentConnectionClient
 import com.sandeshkadel.piagent.connection.ConnectionEndpoint
 import com.sandeshkadel.piagent.connection.ConnectionState
+import com.sandeshkadel.piagent.connection.SpeakMessage
+import com.sandeshkadel.piagent.voice.AgentSpeechPlayer
+import com.sandeshkadel.piagent.voice.SpeechTuning
+import com.sandeshkadel.piagent.voice.SpeechOutputState
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -50,11 +62,31 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
+                    var speechState by remember {
+                        mutableStateOf(SpeechOutputState.Initializing)
+                    }
+                    val speechPlayer = remember {
+                        AgentSpeechPlayer(applicationContext) { nextState ->
+                            runOnUiThread { speechState = nextState }
+                        }
+                    }
                     PiAgentHome(
-                        onCreateConnection = { onState ->
-                            AgentConnectionClient { nextState ->
-                                runOnUiThread { onState(nextState) }
-                            }
+                        speechState = speechState,
+                        speechPlayer = speechPlayer,
+                        onCreateConnection = { onState, onSpeech ->
+                            AgentConnectionClient(
+                                onStateChanged = { nextState ->
+                                    runOnUiThread {
+                                        onState(nextState)
+                                        if (!nextState.isConnected && !nextState.isConnecting) {
+                                            speechPlayer.stop()
+                                        }
+                                    }
+                                },
+                                onSpeechReceived = { message ->
+                                    runOnUiThread { onSpeech(message) }
+                                },
+                            )
                         },
                     )
                 }
@@ -65,7 +97,12 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun PiAgentHome(
-    onCreateConnection: ((ConnectionState) -> Unit) -> AgentConnectionClient,
+    speechState: SpeechOutputState,
+    speechPlayer: AgentSpeechPlayer,
+    onCreateConnection: (
+        (ConnectionState) -> Unit,
+        (SpeakMessage) -> Unit,
+    ) -> AgentConnectionClient,
 ) {
     var endpoint by remember { mutableStateOf("") }
     var token by remember { mutableStateOf("") }
@@ -77,10 +114,56 @@ private fun PiAgentHome(
     val endpointFocusRequester = remember { FocusRequester() }
     val tokenFocusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
-    val client = remember { onCreateConnection { connectionState = it } }
+    val context = LocalContext.current
+    val voicePreferences = remember(context) {
+        context.getSharedPreferences(VOICE_PREFERENCES, Context.MODE_PRIVATE)
+    }
+    var tuning by remember(voicePreferences) {
+        mutableStateOf(
+            SpeechTuning(
+                pitch = voicePreferences.getFloat(
+                    PITCH_PREFERENCE,
+                    SpeechTuning.DEFAULT_PITCH,
+                ).coerceIn(SpeechTuning.MIN_VALUE, SpeechTuning.MAX_VALUE),
+                rate = voicePreferences.getFloat(
+                    RATE_PREFERENCE,
+                    SpeechTuning.DEFAULT_RATE,
+                ).coerceIn(SpeechTuning.MIN_VALUE, SpeechTuning.MAX_VALUE),
+            ),
+        )
+    }
+    var speakConnectionCue by remember(voicePreferences) {
+        mutableStateOf(voicePreferences.getBoolean(CONNECTION_CUE_PREFERENCE, true))
+    }
+    val client = remember {
+        onCreateConnection(
+            { connectionState = it },
+            { message -> speechPlayer.speak(message.text, message.interrupt) },
+        )
+    }
 
     DisposableEffect(client) {
         onDispose { client.close() }
+    }
+    DisposableEffect(speechPlayer) {
+        onDispose { speechPlayer.close() }
+    }
+    LaunchedEffect(tuning) {
+        speechPlayer.setTuning(tuning)
+        voicePreferences.edit()
+            .putFloat(PITCH_PREFERENCE, tuning.pitch)
+            .putFloat(RATE_PREFERENCE, tuning.rate)
+            .apply()
+    }
+    LaunchedEffect(speakConnectionCue) {
+        voicePreferences.edit()
+            .putBoolean(CONNECTION_CUE_PREFERENCE, speakConnectionCue)
+            .apply()
+    }
+    LaunchedEffect(connectionState.isConnected, speakConnectionCue) {
+        if (connectionState.isConnected && speakConnectionCue) {
+            speechPlayer.speak("Pi is connected and ready.", interrupt = false)
+        }
     }
 
     Column(
@@ -199,6 +282,7 @@ private fun PiAgentHome(
                     TextButton(
                         onClick = {
                             client.disconnect()
+                            speechPlayer.stop()
                             token = ""
                             tokenVisible = false
                             connectionState = ConnectionState.Disconnected
@@ -229,6 +313,17 @@ private fun PiAgentHome(
             }
         }
 
+        SpeechOutputCard(
+            state = speechState,
+            tuning = tuning,
+            onTuningChanged = { tuning = it },
+            speakConnectionCue = speakConnectionCue,
+            onConnectionCueChanged = { speakConnectionCue = it },
+            onPreview = {
+                speechPlayer.speak("Hello, Pi is ready to help.", interrupt = true)
+            },
+        )
+
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Permissions", style = MaterialTheme.typography.titleLarge)
             Text(
@@ -245,7 +340,7 @@ private fun PiAgentHome(
             PermissionStatusRow(
                 title = "Microphone",
                 status = "Not requested",
-                detail = "Will be requested when voice capture is implemented and you enable it.",
+                detail = "Needed only for voice capture; speaking replies uses no microphone.",
             )
             PermissionStatusRow(
                 title = "Notifications",
@@ -265,14 +360,100 @@ private fun PiAgentHome(
             ),
         ) {
             Text(
-                "Connection currently supports authentication and heartbeat checks. " +
-                    "Voice, BLE pairing, notifications, and phone actions are not enabled yet.",
+                "Pi voice replies are spoken using an installed offline phone voice. " +
+                    "Voice capture, BLE pairing, notifications, and phone actions are not enabled yet.",
                 modifier = Modifier.padding(16.dp),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSecondaryContainer,
             )
         }
         Spacer(Modifier.height(4.dp))
+    }
+}
+
+@Composable
+private fun SpeechOutputCard(
+    state: SpeechOutputState,
+    tuning: SpeechTuning,
+    onTuningChanged: (SpeechTuning) -> Unit,
+    speakConnectionCue: Boolean,
+    onConnectionCueChanged: (Boolean) -> Unit,
+    onPreview: () -> Unit,
+) {
+    Card {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("Offline voice", style = MaterialTheme.typography.titleMedium)
+            state.voiceName?.let {
+                Text("Voice: $it", style = MaterialTheme.typography.bodyMedium)
+            }
+            Text(
+                state.detail,
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (state.ready) {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                } else {
+                    MaterialTheme.colorScheme.error
+                },
+            )
+            Text(
+                "Adjust pitch and pace for the installed phone voice. " +
+                    "Android does not provide a direct frequency-in-hertz control.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                "Pitch: ${String.format(Locale.ROOT, "%.2f", tuning.pitch)}×",
+                style = MaterialTheme.typography.labelLarge,
+            )
+            Slider(
+                value = tuning.pitch,
+                onValueChange = { onTuningChanged(tuning.copy(pitch = it)) },
+                valueRange = SpeechTuning.MIN_VALUE..SpeechTuning.MAX_VALUE,
+                steps = 7,
+            )
+            Text(
+                "Speaking rate: ${String.format(Locale.ROOT, "%.2f", tuning.rate)}×",
+                style = MaterialTheme.typography.labelLarge,
+            )
+            Slider(
+                value = tuning.rate,
+                onValueChange = { onTuningChanged(tuning.copy(rate = it)) },
+                valueRange = SpeechTuning.MIN_VALUE..SpeechTuning.MAX_VALUE,
+                steps = 7,
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .toggleable(
+                        value = speakConnectionCue,
+                        role = Role.Switch,
+                        onValueChange = onConnectionCueChanged,
+                    ),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    "Speak a ready cue when connected",
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Switch(
+                    checked = speakConnectionCue,
+                    onCheckedChange = null,
+                )
+            }
+            TextButton(
+                onClick = onPreview,
+                enabled = state.ready,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Preview voice")
+            }
+        }
     }
 }
 
@@ -330,6 +511,7 @@ private fun PermissionStatusRow(title: String, status: String, detail: String) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+
             Text(
                 detail,
                 style = MaterialTheme.typography.bodySmall,
@@ -338,3 +520,8 @@ private fun PermissionStatusRow(title: String, status: String, detail: String) {
         }
     }
 }
+
+private const val VOICE_PREFERENCES = "piagent_voice_preferences"
+private const val PITCH_PREFERENCE = "speech_pitch"
+private const val RATE_PREFERENCE = "speech_rate"
+private const val CONNECTION_CUE_PREFERENCE = "speak_connection_cue"

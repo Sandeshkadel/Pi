@@ -22,6 +22,16 @@ gradle testDebugUnitTest assembleDebug
 - Establish an authenticated WebSocket connection and exchange the protocol
   heartbeat, displaying connection and authentication failures without
   logging the token.
+- Speak validated Pi `speak` messages with the highest-quality installed
+  offline system voice for the phone's language (English fallback). The app
+  never silently selects a network-required TTS voice; install offline voice
+  data in Android's text-to-speech settings if none is available.
+- Adjust and locally save the selected phone voice's pitch and speaking rate,
+  preview it, and optionally hear a “Pi is connected and ready” cue after an
+  authenticated connection. The defaults are neutral pitch (1.0×) and a
+  slightly slower rate (0.95×), adjustable from 0.8× to 1.2×. Android's
+  generic TTS API does not expose direct frequency-in-hertz control. Audio
+  plays on the phone, not the Raspberry Pi.
 - The token remains in memory only and is not saved by the app.
 - The token starts masked and includes an accessible eye control to reveal or
   hide it while entering.
@@ -52,10 +62,9 @@ example address as a real device configuration.
 - BLE scanning/GATT, secure bootstrap-key exchange, pairing confirmation, and
   Wi-Fi credential handoff.
 - Token persistence or automatic reconnect after process death.
-- Voice input/output, NotificationListenerService, or Accessibility
-  automation.
+- Voice input, NotificationListenerService, or Accessibility automation.
 - Sending commands, notifications, or phone actions. The current connection
-  supports authentication and heartbeat only.
+  supports authentication, heartbeat, and Pi-to-phone speech responses only.
 
 The Python and Android provisioning codecs share a cross-language test vector,
 but the complete provisioning flow is not ready. Do not enter or transfer real

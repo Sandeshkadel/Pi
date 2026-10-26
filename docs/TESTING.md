@@ -35,8 +35,10 @@ gradle testDebugUnitTest assembleDebug
 
 The unit tests cover local endpoint and token validation, provisioning
 envelope parsing, credential validation, single-use behavior, tamper rejection,
-session binding, and decryption of a fixed ciphertext produced by the Python
-implementation. `assembleDebug` must complete before installing an APK.
+session binding, decryption of a fixed ciphertext produced by the Python
+implementation, strict parsing of Pi speech messages, offline-only TTS voice
+selection, and supported speech-tuning bounds/defaults. `assembleDebug` must
+complete before installing an APK.
 
 ## Emulator smoke test
 
@@ -77,15 +79,25 @@ connectivity to a Raspberry Pi over Wi-Fi.
 - Python test suite: 90 passed, 1 skipped. The POSIX-only `.env` permission
   assertion is skipped on Windows.
 - Python wheel: built and confirmed to contain `dashboard/index.html`.
-- Android unit tests: 10 passed (7 provisioning crypto, 3 endpoint/token
-  validation); debug APK build passed with the installed local SDK.
+- Android unit tests: 20 passed (7 provisioning crypto, 3 endpoint/token
+  validation, 4 Pi speech-message parsing, 3 offline voice selection, and
+  3 speech-tuning tests); debug APK build passed with the installed local SDK.
 - Android API 36 emulator: installed and launched the native PiAgent app.
   Connected it through `adb reverse` to the loopback FastAPI server using a
   test-only token; the UI reported an authenticated healthy heartbeat.
   Retried with an invalid token and verified the UI showed authentication
   failure. Disconnect also returned the UI to its not-connected state.
+- Android API 36 emulator: confirmed the selected `en-AU-language` voice is
+  offline, the pitch/rate controls and connection-cue toggle render, and a
+  voice preview completed according to the Android TTS callback. A separate
+  local authenticated WebSocket test reached a healthy heartbeat and completed
+  the connection-ready cue through the offline phone TTS. This confirms TTS
+  synthesis, not what a person hears from an emulator or physical speaker.
 - Android API 36 emulator: verified the token remains masked by default and
   that the accessible eye control reveals and re-masks the entered value.
+- The Android app now includes speech pitch/rate controls, a voice preview,
+  and a toggleable ready cue. These UI controls were added after the earlier
+  emulator run and require fresh emulator/device verification.
 - The emulator's separate Bluetooth system process briefly crashed and
   restarted; no PiAgent crash was observed. BLE was not exercised.
 - Android browser dashboard: the development server was accessed through
@@ -97,8 +109,8 @@ connectivity to a Raspberry Pi over Wi-Fi.
 ## Not validated by these checks
 
 The BLE GATT peripheral/client, secure bootstrap-key exchange, Wi-Fi
-credential handoff, real audio capture/playback, notification forwarding,
-Accessibility automation, local model performance, Raspberry Pi resource use,
-startup after reboot, and network-loss recovery are not implemented or are
-hardware-dependent. Report these as pending until separately tested on the
-intended Android phone and Pi.
+credential handoff, real microphone capture, physical-phone voice availability
+and audible TTS quality, notification forwarding, Accessibility automation,
+local model performance, Raspberry Pi resource use, startup after reboot, and
+network-loss recovery are not implemented or are hardware-dependent. Report
+these as pending until separately tested on the intended Android phone and Pi.

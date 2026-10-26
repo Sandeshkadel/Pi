@@ -97,7 +97,10 @@ object ConnectionEndpoint {
         this in 'a'..'z' || this in '0'..'9'
 }
 
-class AgentConnectionClient(private val onStateChanged: (ConnectionState) -> Unit) {
+class AgentConnectionClient(
+    private val onStateChanged: (ConnectionState) -> Unit,
+    private val onSpeechReceived: (SpeakMessage) -> Unit = {},
+) {
     private val client = OkHttpClient.Builder()
         .pingInterval(20, TimeUnit.SECONDS)
         .build()
@@ -201,10 +204,8 @@ class AgentConnectionClient(private val onStateChanged: (ConnectionState) -> Uni
     @Synchronized
     private fun handleMessage(webSocket: WebSocket, text: String) {
         if (socket !== webSocket) return
-        val acknowledged = try {
-            val message = JSONObject(text)
-            message.optString("type") == "heartbeat_ack" &&
-                message.optLong("sequence", -1) in 1..heartbeatSequence.get()
+        val message = try {
+            JSONObject(text)
         } catch (error: JSONException) {
             onStateChanged(
                 ConnectionState(
@@ -215,14 +216,34 @@ class AgentConnectionClient(private val onStateChanged: (ConnectionState) -> Uni
             )
             return
         }
-        if (acknowledged) {
-            onStateChanged(
-                ConnectionState(
-                    label = "Connected",
-                    detail = "Authenticated; Pi heartbeat is healthy.",
-                    isConnected = true,
-                ),
-            )
+        val acknowledged = message.optString("type") == "heartbeat_ack" &&
+            message.optLong("sequence", -1) in 1..heartbeatSequence.get()
+        when (message.optString("type")) {
+            "heartbeat_ack" -> {
+                if (acknowledged) {
+                    onStateChanged(
+                        ConnectionState(
+                            label = "Connected",
+                            detail = "Authenticated; Pi heartbeat is healthy.",
+                            isConnected = true,
+                        ),
+                    )
+                }
+            }
+            "speak" -> {
+                val speech = AgentServerMessageParser.parseSpeak(text)
+                if (speech == null) {
+                    onStateChanged(
+                        ConnectionState(
+                            label = "Connected",
+                            detail = "Pi sent an invalid speech response.",
+                            isConnected = true,
+                        ),
+                    )
+                } else {
+                    onSpeechReceived(speech)
+                }
+            }
         }
     }
 

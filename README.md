@@ -8,11 +8,12 @@ The project is being built in phases. The current implementation includes a
 FastAPI health endpoint, a mobile-friendly read-only status dashboard, an
 authenticated and schema-validated WebSocket protocol, mocked voice/state
 processing, local task/memory foundations, and a native Android connection UI
-for private-network WebSocket authentication and heartbeat checks. BLE
-credential-envelope codecs exist on Python and Android and share a
-cross-language test vector. Real BLE pairing, production speech adapters,
-notifications, phone automation, and Pi deployment are not complete. The
-default WebSocket app still has no command/notification handler.
+for private-network authentication, heartbeat checks, and Pi-to-phone speech
+responses through an installed offline phone voice. BLE credential-envelope
+codecs exist on Python and Android and share a cross-language test vector.
+Real BLE pairing, Pi-side production voice input/speech adapters, notifications,
+phone automation, and Pi deployment are not complete. The default WebSocket
+app still has no command/notification handler.
 
 ## Safety and privacy
 
@@ -54,8 +55,10 @@ without a configured token intentionally rejects WebSocket connections.
 Open `android-app/` in Android Studio with Android SDK 35 installed, then run
 the `app` configuration on an Android 10+ device or emulator. It can connect
 to the authenticated local WebSocket heartbeat when a Pi endpoint and token
-are configured. It does not yet support BLE pairing, voice, notifications, or
-phone actions. Permissions are listed in-app and are requested only when
+are configured. It does not yet support BLE pairing, voice input,
+notifications, or phone actions. It can speak Pi responses and a configurable
+ready cue using the phone's installed offline TTS voice. Permissions are
+listed in-app and are requested only when
 their features are available. Do not send real Wi-Fi credentials; pairing and
 credential handoff are not implemented.
 
