@@ -70,18 +70,23 @@ class ActionResult(StrictMessage):
     details: str = Field(max_length=1_000)
 
 
+class VoiceControl(StrictMessage):
+    type: Literal["voice_control"]
+    action: Literal["start", "stop"]
+
+
 class Heartbeat(StrictMessage):
     type: Literal["heartbeat"]
     sequence: int = Field(ge=0)
 
 
 IncomingMessage: TypeAlias = Annotated[
-    AudioChunk | Notification | Command | ActionResult | Heartbeat,
+    AudioChunk | Notification | Command | ActionResult | VoiceControl | Heartbeat,
     Field(discriminator="type"),
 ]
 INCOMING_MESSAGE_ADAPTER = TypeAdapter(IncomingMessage)
 INCOMING_MESSAGE_TYPES = frozenset(
-    {"audio_chunk", "notification", "command", "action_result", "heartbeat"}
+    {"audio_chunk", "notification", "command", "action_result", "voice_control", "heartbeat"}
 )
 
 
@@ -120,7 +125,13 @@ class HeartbeatAck(StrictMessage):
 
 class MessageAccepted(StrictMessage):
     type: Literal["accepted"]
-    message_type: Literal["audio_chunk", "notification", "command", "action_result"]
+    message_type: Literal[
+        "audio_chunk",
+        "notification",
+        "command",
+        "action_result",
+        "voice_control",
+    ]
 
 
 class ProtocolError(StrictMessage):

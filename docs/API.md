@@ -37,6 +37,18 @@ Response:
 {"type":"heartbeat_ack","sequence":17}
 ```
 
+Explicit phone-microphone sessions use bounded start/stop controls around
+`audio_chunk` messages:
+
+```json
+{"type":"voice_control","action":"start"}
+{"type":"audio_chunk","sequence":0,"format":"pcm_s16le","sample_rate":16000,"data":"..."}
+{"type":"voice_control","action":"stop"}
+```
+
+The audio `data` value must be valid base64-encoded PCM; see
+[NETWORK.md](NETWORK.md) for the frame and model-configuration limits.
+
 Unknown message types, invalid JSON, oversized frames, invalid payloads, and
 messages received before the agent handler is configured produce explicit
 `error` messages. A syntactically valid command is not proof that an action

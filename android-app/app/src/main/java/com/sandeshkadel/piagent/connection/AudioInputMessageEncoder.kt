@@ -7,7 +7,6 @@ object AudioInputMessageEncoder {
     const val SAMPLE_RATE = 16_000
     const val MAX_AUDIO_BYTES = 48_000
     const val FRAME_BYTES = 3_200
-    const val FINAL_SILENCE_FRAMES = 12
 
     fun encode(sequence: Long, pcm: ByteArray): String {
         require(sequence >= 0) { "Audio sequence must not be negative." }
@@ -23,5 +22,14 @@ object AudioInputMessageEncoder {
             .toString()
     }
 
-    fun finalSilenceFrame(): ByteArray = ByteArray(FRAME_BYTES)
+    fun encodeVoiceControl(action: VoiceControlAction): String =
+        JSONObject()
+            .put("type", "voice_control")
+            .put("action", action.protocolValue)
+            .toString()
+}
+
+enum class VoiceControlAction(val protocolValue: String) {
+    START("start"),
+    STOP("stop"),
 }

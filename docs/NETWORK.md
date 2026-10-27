@@ -16,21 +16,24 @@ invalid credentials before accepting the connection; it never accepts tokens
 in URLs or logs message content.
 
 Pydantic validates supported client messages: `audio_chunk`, `notification`,
-`command`, `action_result`, and `heartbeat`. Server messages include
+`command`, `action_result`, `voice_control`, and `heartbeat`. Server messages include
 `listening`, `speak`, `permission_request`, `automation_task`,
 `heartbeat_ack`, `accepted`, and `error`. Extra fields are rejected. Audio and
 JSON payload sizes are bounded. Unknown types and invalid payloads receive a
 protocol error; heartbeat requests receive an acknowledgement with the same
 sequence number.
 
-Android sends microphone audio only after the user starts capture. Each
+Android sends microphone audio only after the user starts capture. The
+`voice_control` message has exactly one supported action, `start` or `stop`,
+and signals the explicit, user-controlled session boundary. Each
 `audio_chunk` contains up to 100 ms of mono 16 kHz signed 16-bit little-endian
 PCM (base64 encoded), and sequence numbers increase for the connection. User
-stop sends 1.2 seconds of bounded silence frames so an injected
-voice-activity detector can finish the utterance. Capture is capped at
-30 seconds and stops when PiAgent leaves the foreground. The default Pi server
-has no configured voice handler, so it returns `agent_not_ready` instead of
-claiming that audio was processed.
+stop sends a `stop` control message so the Pi can finalize speech immediately;
+it does not fabricate trailing audio frames. Capture is capped at 30 seconds
+and stops when PiAgent leaves the foreground. Local voice processing is
+disabled until `WHISPER_MODEL_PATH` points to a pre-downloaded model directory.
+Without that configuration, voice control and audio receive `agent_not_ready`
+instead of being claimed as processed.
 
 This phase establishes the validated transport only. Until an agent message
 handler is connected, valid non-heartbeat messages receive an explicit

@@ -36,8 +36,8 @@ gradle testDebugUnitTest assembleDebug
   is requested only when capture starts. Audio is streamed in bounded 100 ms,
   16 kHz mono PCM chunks over the authenticated WebSocket, with no audio file
   or recording retained by the app. Capture stops when the app leaves the
-  foreground or after 30 seconds; stopping sends trailing silence so an
-  injected Pi VAD can finish an utterance.
+  foreground or after 30 seconds; explicit start/stop protocol messages bound
+  the listening session, without synthetic silence frames.
 - The token remains in memory only and is not saved by the app.
 - The token starts masked and includes an accessible eye control to reveal or
   hide it while entering.
@@ -70,9 +70,13 @@ example address as a real device configuration.
 - Token persistence or automatic reconnect after process death.
 - An always-on background wake-word service; microphone capture is explicit
   and stops when the app leaves the foreground.
-- Production Pi-side wake-word, VAD, speech-recognition, intent, or task
-  adapters. The Android app sends microphone audio, but the default Pi server
-  does not configure a voice message handler.
+- An always-on wake-word detector. Optional local Pi-side faster-whisper
+  speech recognition and energy-threshold VAD are available when configured
+  with a pre-downloaded model; see [VOICE.md](./VOICE.md). The default Pi
+  server leaves this disabled until `WHISPER_MODEL_PATH` is set.
+- A phone-action dispatcher. PiAgent can classify and safely respond to
+  supported requests, but it does not open apps, send messages, or automate
+  Android UI.
 - NotificationListenerService, Accessibility automation, and sending
   commands/notifications or triggering phone actions.
 

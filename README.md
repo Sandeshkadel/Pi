@@ -8,13 +8,14 @@ The project is being built in phases. The current implementation includes a
 FastAPI health endpoint, a mobile-friendly read-only status dashboard, an
 authenticated and schema-validated WebSocket protocol, mocked voice/state
 processing, local task/memory foundations, and a native Android connection UI
-for private-network authentication, heartbeat checks, and Pi-to-phone speech
-responses through an installed offline phone voice. BLE credential-envelope
-codecs exist on Python and Android and share a cross-language test vector.
-Phone microphone streaming is implemented, but real BLE pairing, Pi-side
-production voice adapters, notifications, phone automation, and Pi deployment
-are not complete. The default WebSocket app has no command/notification
-handler or configured voice adapters.
+for private-network authentication, heartbeat checks, phone-microphone
+streaming, and Pi-to-phone speech responses through an installed offline
+phone voice. BLE credential-envelope codecs exist on Python and Android and
+share a cross-language test vector. Optional local faster-whisper speech
+recognition can be enabled with a pre-downloaded model directory; it is not
+enabled by default. Real BLE pairing, always-on wake-word detection,
+notifications, phone automation, production LAN/TLS hardening, and Pi
+deployment remain incomplete.
 
 ## Safety and privacy
 
@@ -60,7 +61,10 @@ are configured. With explicit in-app microphone permission, it can stream
 16 kHz audio from the phone mic to the Pi while capture is active and speak Pi
 responses through the phone speaker using its installed offline TTS voice.
 The standard Pi server still needs voice model adapters configured to process
-audio. BLE pairing, notifications, and phone actions are not implemented.
+audio. See [the voice setup guide](docs/VOICE.md) to enable optional local
+speech recognition. Microphone capture is explicitly user-started; always-on
+wake-word detection is not implemented. BLE pairing, notifications, and phone
+actions are not implemented.
 Permissions are listed in-app and requested only when
 their features are available. Do not send real Wi-Fi credentials; pairing and
 credential handoff are not implemented.

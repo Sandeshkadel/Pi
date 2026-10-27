@@ -76,7 +76,7 @@ connectivity to a Raspberry Pi over Wi-Fi.
 ## Current local verification record
 
 - Python lint: passed.
-- Python test suite: 90 passed, 1 skipped. The POSIX-only `.env` permission
+- Python test suite: 101 passed, 1 skipped. The POSIX-only `.env` permission
   assertion is skipped on Windows.
 - Python wheel: built and confirmed to contain `dashboard/index.html`.
 - Android unit tests: 23 passed (7 provisioning crypto, 3 endpoint/token
@@ -95,15 +95,20 @@ connectivity to a Raspberry Pi over Wi-Fi.
   synthesis, not what a person hears from an emulator or physical speaker.
 - Android API 36 emulator: verified the token remains masked by default and
   that the accessible eye control reveals and re-masks the entered value.
-- Android API 36 emulator: microphone permission was requested only after
+- Earlier Android API 36 emulator revision: microphone permission was requested only after
   tapping Start. The app streamed captured PCM through `adb reverse` to a
-  local authenticated FastAPI server with mocked wake-word, VAD, and STT
-  adapters. The mock server returned `listening` and a speech response; the
-  installed offline phone TTS reported that it finished speaking.
-- Android API 36 emulator: starting capture and backgrounding PiAgent stopped
-  the microphone; returning to the app showed the microphone inactive.
-- The emulator test used mocked voice recognition; it did not test real human
-  speech recognition or a production model on the Pi.
+  local authenticated FastAPI server with mocked voice adapters. The mock
+  server returned `listening` and a speech response; the installed offline
+  phone TTS reported that it finished speaking. This predates the explicit
+  voice-control start/stop protocol.
+- Latest Android unit tests and `assembleDebug` pass, including the new
+  start/stop encoder. A repeat API 36 emulator run was attempted, but the
+  existing AVD stalled during boot (`adb install` reported "device is still
+  booting") and Android System UI stopped responding; the revised phone
+  start/audio/stop flow was therefore not emulator-verified in this run.
+- Python's authenticated WebSocket integration test covers the new
+  voice-control start/audio/stop exchange with mocked local adapters. It does
+  not validate real speech recognition or Pi performance.
 - Android release variant: `assembleRelease` passed. The generated APK is
   unsigned because no user-owned release signing key is configured; it is not
   a publishable or installable signed release.

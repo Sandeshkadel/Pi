@@ -75,10 +75,13 @@ or an AI model.
 
 ## Current integration status
 
-Ollama, speech recognition, speech synthesis, systemd boot startup, BLE
-pairing, and phone permission-backed features are not installed or configured
-by this setup. Do not treat PiAgent as a ready offline voice agent until these
-integrations are implemented and tested on the Pi and intended Android phone.
+Optional local faster-whisper speech recognition can be enabled by installing
+the `voice` extra and setting `WHISPER_MODEL_PATH` at service launch; see
+[VOICE.md](./VOICE.md). This setup does not download the model or install
+Ollama. Always-on wake-word detection, Pi-side speech synthesis, systemd boot
+startup, BLE pairing, notification access, and phone automation are not
+configured. Do not treat PiAgent as a production-ready voice agent until the
+local model and intended Pi/Android hardware have been validated.
 
 ## Before a network deployment
 

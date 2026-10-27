@@ -13,6 +13,11 @@ def create_app(
     token_hash: str | None = None,
 ) -> FastAPI:
     """Build an application with explicit agent-channel dependencies."""
+    if message_handler_factory is None:
+        from app.voice.runtime import create_configured_voice_handler_factory
+
+        message_handler_factory = create_configured_voice_handler_factory()
+
     application = FastAPI(title="PiAgent", version="0.1.0")
     application.include_router(
         create_agent_router(

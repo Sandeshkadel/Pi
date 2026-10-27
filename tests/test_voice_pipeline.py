@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from app.core.security import hash_token
 from app.core.state import AgentState
 from app.main import create_app
-from app.server.schemas import AudioChunk
+from app.server.schemas import AudioChunk, VoiceControl
 from app.server.websocket import MessageHandlerFactory
 from app.voice.pipeline import (
     AudioBufferOverflow,
@@ -194,6 +194,37 @@ async def test_audio_sequence_must_increase_and_busy_pipeline_rejects_audio() ->
         await pipeline.process_chunk(_chunk(4, SPEECH_FRAME))
 
 
+@pytest.mark.asyncio
+async def test_manual_capture_ignores_silence_until_explicit_stop() -> None:
+    pipeline, recognizer, _ = _pipeline()
+
+    await pipeline.begin_listening()
+    await pipeline.process_chunk(_chunk(0, SPEECH_FRAME))
+    for sequence in range(1, 5):
+        update = await pipeline.process_chunk(_chunk(sequence, SILENCE_FRAME))
+
+    assert update.state is AgentState.LISTENING
+    assert recognizer.audio is None
+
+    final = await pipeline.finish_listening()
+
+    assert final.state is AgentState.THINKING
+    assert final.transcript == "set a timer"
+    assert recognizer.audio == SPEECH_FRAME
+
+
+@pytest.mark.asyncio
+async def test_manual_capture_without_speech_returns_to_idle() -> None:
+    pipeline, recognizer, _ = _pipeline()
+    await pipeline.begin_listening()
+
+    update = await pipeline.finish_listening()
+
+    assert update.state is AgentState.IDLE
+    assert "didn't hear" in (update.speech or "")
+    assert recognizer.audio is None
+
+
 def test_mock_audio_round_trips_through_authenticated_websocket() -> None:
     async def handle_transcript(transcript: str) -> str:
         assert transcript == "set a timer"
@@ -248,6 +279,90 @@ def test_mock_audio_round_trips_through_authenticated_websocket() -> None:
             websocket.send_json(_chunk(6, SILENCE_FRAME).model_dump(mode="json"))
             assert websocket.receive_json()["type"] == "accepted"
             websocket.send_json(_chunk(7, SILENCE_FRAME).model_dump(mode="json"))
+            assert websocket.receive_json()["type"] == "speak"
+            assert websocket.receive_json()["type"] == "accepted"
+
+
+def test_explicit_voice_control_finalizes_phone_audio_session() -> None:
+    async def handle_transcript(transcript: str) -> str:
+        assert transcript == "set a timer"
+        return "Timer set."
+
+    handler_factory = create_voice_message_handler_factory(
+        lambda: _pipeline()[0],
+        handle_transcript,
+    )
+    token = "voice-control-test-token-with-at-least-thirty-two-characters"
+    app = create_app(message_handler_factory=handler_factory, token_hash=hash_token(token))
+
+    with TestClient(app) as client:
+        with client.websocket_connect(
+            "/ws/agent",
+            headers={"Authorization": "Bearer " + token},
+        ) as websocket:
+            websocket.send_json(VoiceControl(type="voice_control", action="start").model_dump())
+            assert websocket.receive_json() == {"type": "listening"}
+            assert websocket.receive_json()["text"] == "Listening."
+            assert websocket.receive_json() == {
+                "type": "accepted",
+                "message_type": "voice_control",
+            }
+
+            websocket.send_json(_chunk(0, SPEECH_FRAME).model_dump(mode="json"))
+            assert websocket.receive_json() == {
+                "type": "accepted",
+                "message_type": "audio_chunk",
+            }
+            websocket.send_json(_chunk(1, SILENCE_FRAME).model_dump(mode="json"))
+            assert websocket.receive_json()["type"] == "accepted"
+
+            websocket.send_json(VoiceControl(type="voice_control", action="stop").model_dump())
+            assert websocket.receive_json() == {
+                "type": "speak",
+                "text": "Timer set.",
+                "interrupt": True,
+            }
+            assert websocket.receive_json() == {
+                "type": "accepted",
+                "message_type": "voice_control",
+            }
+
+
+def test_voice_backend_error_is_reported_and_session_can_restart() -> None:
+    pipeline, _, _ = _pipeline(
+        FakeRecognizer(error=VoiceBackendError("model unavailable"))
+    )
+    token = "voice-error-test-token-with-at-least-thirty-two-characters"
+    handler_factory = create_voice_message_handler_factory(
+        lambda: pipeline,
+        lambda _: asyncio.sleep(0, result="unused"),
+    )
+    app = create_app(
+        message_handler_factory=handler_factory,
+        token_hash=hash_token(token),
+    )
+
+    with TestClient(app) as client:
+        with client.websocket_connect(
+            "/ws/agent",
+            headers={"Authorization": "Bearer " + token},
+        ) as websocket:
+            websocket.send_json(VoiceControl(type="voice_control", action="start").model_dump())
+            assert websocket.receive_json()["type"] == "listening"
+            assert websocket.receive_json()["type"] == "speak"
+            assert websocket.receive_json()["type"] == "accepted"
+            websocket.send_json(_chunk(0, SPEECH_FRAME).model_dump(mode="json"))
+            assert websocket.receive_json()["type"] == "accepted"
+            websocket.send_json(VoiceControl(type="voice_control", action="stop").model_dump())
+            assert websocket.receive_json() == {
+                "type": "error",
+                "code": "voice_backend_error",
+                "message": "Local voice processing failed. Check the Pi model setup.",
+            }
+            assert websocket.receive_json()["type"] == "accepted"
+
+            websocket.send_json(VoiceControl(type="voice_control", action="start").model_dump())
+            assert websocket.receive_json()["type"] == "listening"
             assert websocket.receive_json()["type"] == "speak"
             assert websocket.receive_json()["type"] == "accepted"
 

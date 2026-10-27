@@ -72,10 +72,10 @@ class PhoneMicrophoneCapture(private val context: Context) {
     }
 
     @Synchronized
-    fun stop(sendEndOfAudio: Boolean = true) {
+    fun stop(finalizeSession: Boolean = true) {
         val session = activeSession ?: return
         activeSession = null
-        session.endReason = if (sendEndOfAudio) CaptureEndReason.USER_STOPPED else null
+        session.endReason = if (finalizeSession) CaptureEndReason.USER_STOPPED else null
         session.recording.set(false)
         stopRecorder(session.recorder)
     }

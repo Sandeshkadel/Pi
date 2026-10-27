@@ -4,7 +4,6 @@ import org.json.JSONObject
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AudioInputMessageEncoderTest {
@@ -41,10 +40,17 @@ class AudioInputMessageEncoderTest {
     }
 
     @Test
-    fun providesAProtocolSizedSilenceFrame() {
-        val silence = AudioInputMessageEncoder.finalSilenceFrame()
+    fun encodesExplicitVoiceSessionStartAndStop() {
+        val start = JSONObject(
+            AudioInputMessageEncoder.encodeVoiceControl(VoiceControlAction.START),
+        )
+        val stop = JSONObject(
+            AudioInputMessageEncoder.encodeVoiceControl(VoiceControlAction.STOP),
+        )
 
-        assertEquals(AudioInputMessageEncoder.FRAME_BYTES, silence.size)
-        assertTrue(silence.all { it == 0.toByte() })
+        assertEquals("voice_control", start.getString("type"))
+        assertEquals("start", start.getString("action"))
+        assertEquals("voice_control", stop.getString("type"))
+        assertEquals("stop", stop.getString("action"))
     }
 }

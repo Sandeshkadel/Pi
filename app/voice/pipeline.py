@@ -128,11 +128,43 @@ class VoicePipeline:
         self._audio = PCMBuffer(self._settings.max_command_bytes)
         self._silence_samples = 0
         self._has_speech = False
+        self._manual_session = False
         self._last_sequence: int | None = None
 
     @property
     def state(self) -> AgentState:
         return self._state_machine.state
+
+    async def begin_listening(self) -> VoiceUpdate:
+        """Start a user-initiated microphone session without wake-word detection."""
+        if self.state is not AgentState.IDLE:
+            raise VoicePipelineBusyError(
+                f"Cannot start listening while the agent is {self.state.value}."
+            )
+        self._clear_utterance()
+        self._manual_session = True
+        self._state_machine.transition(AgentState.LISTENING)
+        prompt = "Listening."
+        await self._speak(prompt)
+        return VoiceUpdate(state=self.state, listening_started=True, speech=prompt)
+
+    async def finish_listening(self) -> VoiceUpdate:
+        """Finish a push-to-talk session and transcribe any buffered speech."""
+        if self.state is AgentState.IDLE:
+            return VoiceUpdate(state=self.state)
+        if self.state is not AgentState.LISTENING:
+            raise VoicePipelineBusyError(
+                f"Cannot finish listening while the agent is {self.state.value}."
+            )
+        if self._has_speech:
+            return await self._transcribe_utterance()
+
+        self._state_machine.transition(AgentState.RESPONDING)
+        prompt = "I didn't hear a command. Please try again."
+        await self._speak(prompt)
+        self._state_machine.transition(AgentState.IDLE)
+        self._clear_utterance()
+        return VoiceUpdate(state=self.state, speech=prompt)
 
     async def process_chunk(self, chunk: AudioChunk) -> VoiceUpdate:
         """Process one already-validated audio message and return any user-facing event."""
@@ -182,6 +214,9 @@ class VoicePipeline:
         if not self._has_speech:
             return VoiceUpdate(state=self.state)
 
+        if self._manual_session:
+            return VoiceUpdate(state=self.state)
+
         self._silence_samples += len(pcm) // 2
         if self._silence_samples < self._settings.silence_timeout_samples:
             return VoiceUpdate(state=self.state)
@@ -216,6 +251,7 @@ class VoicePipeline:
         audio = self._audio.take()
         self._silence_samples = 0
         self._has_speech = False
+        self._manual_session = False
         self._state_machine.transition(AgentState.TRANSCRIBING)
         try:
             transcript = (
@@ -256,3 +292,4 @@ class VoicePipeline:
         self._audio.clear()
         self._silence_samples = 0
         self._has_speech = False
+        self._manual_session = False

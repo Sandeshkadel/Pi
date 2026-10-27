@@ -60,6 +60,7 @@ import com.sandeshkadel.piagent.connection.AgentConnectionClient
 import com.sandeshkadel.piagent.connection.ConnectionEndpoint
 import com.sandeshkadel.piagent.connection.ConnectionState
 import com.sandeshkadel.piagent.connection.SpeakMessage
+import com.sandeshkadel.piagent.connection.VoiceControlAction
 import com.sandeshkadel.piagent.voice.AgentSpeechPlayer
 import com.sandeshkadel.piagent.voice.CaptureEndReason
 import com.sandeshkadel.piagent.voice.PhoneMicrophoneCapture
@@ -156,7 +157,7 @@ private fun PiAgentHome(
                     if (!nextState.isConnected && !nextState.isConnecting) {
                         speechPlayer.stop()
                         val wasRecording = microphoneCapture.isRecording
-                        microphoneCapture.stop(sendEndOfAudio = false)
+                        microphoneCapture.stop(finalizeSession = false)
                         microphoneRecording = false
                         if (wasRecording) {
                             microphoneStatus =
@@ -168,12 +169,12 @@ private fun PiAgentHome(
             { message -> speechPlayer.speak(message.text, message.interrupt) },
             {
                 mainHandler.post {
-                    microphoneStatus = "Pi heard “Hey Pi”. Say your command, then tap Stop."
+                    microphoneStatus = "Pi is listening. Say your command, then tap Stop."
                 }
             },
             { _, detail ->
                 mainHandler.post {
-                    microphoneCapture.stop(sendEndOfAudio = false)
+                    microphoneCapture.stop(finalizeSession = false)
                     microphoneRecording = false
                     microphoneStatus = detail
                 }
@@ -191,7 +192,7 @@ private fun PiAgentHome(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) {
                 val wasRecording = microphoneCapture.isRecording
-                microphoneCapture.stop(sendEndOfAudio = false)
+                microphoneCapture.stop()
                 microphoneRecording = false
                 if (wasRecording) {
                     microphoneStatus = "Microphone stopped when PiAgent left the screen."
@@ -201,7 +202,7 @@ private fun PiAgentHome(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
-            microphoneCapture.stop(sendEndOfAudio = false)
+            microphoneCapture.stop(finalizeSession = false)
         }
     }
     LaunchedEffect(tuning) {
@@ -224,12 +225,14 @@ private fun PiAgentHome(
     val startMicrophone: () -> Unit = {
         if (!connectionState.isConnected) {
             microphoneStatus = "Connect to your Pi before starting microphone capture."
+        } else if (!client.sendVoiceControl(VoiceControlAction.START)) {
+            microphoneStatus = "The Pi connection could not start voice capture."
         } else {
             try {
                 microphoneCapture.start(
                     onAudioFrame = client::sendAudioFrame,
                     onCaptureEnded = { reason ->
-                        val sent = client.sendEndOfAudio()
+                        val sent = client.sendVoiceControl(VoiceControlAction.STOP)
                         mainHandler.post {
                             microphoneRecording = false
                             microphoneStatus = if (!sent) {
@@ -242,6 +245,7 @@ private fun PiAgentHome(
                         }
                     },
                     onFailure = { detail ->
+                        client.sendVoiceControl(VoiceControlAction.STOP)
                         mainHandler.post {
                             microphoneRecording = false
                             microphoneStatus = detail
@@ -250,10 +254,12 @@ private fun PiAgentHome(
                 )
                 microphoneRecording = true
                 microphoneStatus =
-                    "Microphone is on. Say “Hey Pi” and your command, then tap Stop."
+                    "Microphone is on. Say a command, then tap Stop."
             } catch (error: IllegalStateException) {
+                client.sendVoiceControl(VoiceControlAction.STOP)
                 microphoneStatus = error.message ?: "Phone microphone capture could not start."
             } catch (error: SecurityException) {
+                client.sendVoiceControl(VoiceControlAction.STOP)
                 microphoneStatus = error.message ?: "Allow microphone access to use voice input."
             }
         }
@@ -489,8 +495,8 @@ private fun PiAgentHome(
         ) {
             Text(
                 "Voice input streams 16 kHz microphone audio to the Pi while capture is active. " +
-                    "The standard Pi server still needs local wake-word, VAD, and speech-recognition " +
-                    "adapters configured. BLE, notifications, and phone actions are not enabled.",
+                    "Voice processing requires the Pi's local speech model. BLE, notifications, " +
+                    "and phone actions are not enabled.",
                 modifier = Modifier.padding(16.dp),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSecondaryContainer,
@@ -516,7 +522,7 @@ private fun MicrophoneCaptureCard(
         ) {
             Text("Phone microphone", style = MaterialTheme.typography.titleMedium)
             Text(
-                "Tap Start, say “Hey Pi” and your command, then tap Stop. Audio streams to the " +
+                "Tap Start, say your command, then tap Stop. Audio streams to the " +
                     "authenticated Pi over WebSocket and is not saved by the app.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

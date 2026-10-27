@@ -143,11 +143,10 @@ class AgentConnectionClient(
         )
     }
 
-    fun sendEndOfAudio(): Boolean {
-        repeat(AudioInputMessageEncoder.FINAL_SILENCE_FRAMES) {
-            if (!sendAudioFrame(AudioInputMessageEncoder.finalSilenceFrame())) return false
-        }
-        return true
+    @Synchronized
+    fun sendVoiceControl(action: VoiceControlAction): Boolean {
+        val activeSocket = socket ?: return false
+        return activeSocket.send(AudioInputMessageEncoder.encodeVoiceControl(action))
     }
 
     @Synchronized
