@@ -100,6 +100,8 @@ object ConnectionEndpoint {
 class AgentConnectionClient(
     private val onStateChanged: (ConnectionState) -> Unit,
     private val onSpeechReceived: (SpeakMessage) -> Unit = {},
+    private val onListening: () -> Unit = {},
+    private val onProtocolError: (String, String) -> Unit = { _, _ -> },
 ) {
     private val client = OkHttpClient.Builder()
         .pingInterval(20, TimeUnit.SECONDS)
@@ -108,6 +110,7 @@ class AgentConnectionClient(
         Thread(runnable, "piagent-heartbeat").apply { isDaemon = true }
     }
     private val heartbeatSequence = AtomicLong(0)
+    private val audioSequence = AtomicLong(0)
     private var socket: WebSocket? = null
     private var heartbeat: ScheduledFuture<*>? = null
 
@@ -123,12 +126,28 @@ class AgentConnectionClient(
                 isConnecting = true,
             ),
         )
+        audioSequence.set(0)
 
         val request = Request.Builder()
             .url(endpoint.toASCIIString())
             .header("Authorization", "Bearer $token")
             .build()
         socket = client.newWebSocket(request, listener)
+    }
+
+    @Synchronized
+    fun sendAudioFrame(pcm: ByteArray): Boolean {
+        val activeSocket = socket ?: return false
+        return activeSocket.send(
+            AudioInputMessageEncoder.encode(audioSequence.getAndIncrement(), pcm),
+        )
+    }
+
+    fun sendEndOfAudio(): Boolean {
+        repeat(AudioInputMessageEncoder.FINAL_SILENCE_FRAMES) {
+            if (!sendAudioFrame(AudioInputMessageEncoder.finalSilenceFrame())) return false
+        }
+        return true
     }
 
     @Synchronized
@@ -243,6 +262,16 @@ class AgentConnectionClient(
                 } else {
                     onSpeechReceived(speech)
                 }
+            }
+            "listening" -> onListening()
+            "error" -> {
+                val code = message.optString("code", "protocol_error")
+                val detail = when (code) {
+                    "agent_not_ready" ->
+                        "The Pi received audio, but its local voice processor is not configured."
+                    else -> message.optString("message", "The Pi rejected a voice message.")
+                }
+                onProtocolError(code, detail)
             }
         }
     }

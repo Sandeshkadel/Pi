@@ -23,6 +23,15 @@ JSON payload sizes are bounded. Unknown types and invalid payloads receive a
 protocol error; heartbeat requests receive an acknowledgement with the same
 sequence number.
 
+Android sends microphone audio only after the user starts capture. Each
+`audio_chunk` contains up to 100 ms of mono 16 kHz signed 16-bit little-endian
+PCM (base64 encoded), and sequence numbers increase for the connection. User
+stop sends 1.2 seconds of bounded silence frames so an injected
+voice-activity detector can finish the utterance. Capture is capped at
+30 seconds and stops when PiAgent leaves the foreground. The default Pi server
+has no configured voice handler, so it returns `agent_not_ready` instead of
+claiming that audio was processed.
+
 This phase establishes the validated transport only. Until an agent message
 handler is connected, valid non-heartbeat messages receive an explicit
 `agent_not_ready` error and are not claimed as processed.

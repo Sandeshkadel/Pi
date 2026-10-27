@@ -32,12 +32,18 @@ gradle testDebugUnitTest assembleDebug
   slightly slower rate (0.95×), adjustable from 0.8× to 1.2×. Android's
   generic TTS API does not expose direct frequency-in-hertz control. Audio
   plays on the phone, not the Raspberry Pi.
+- Start and stop foreground-only capture from the phone microphone. Permission
+  is requested only when capture starts. Audio is streamed in bounded 100 ms,
+  16 kHz mono PCM chunks over the authenticated WebSocket, with no audio file
+  or recording retained by the app. Capture stops when the app leaves the
+  foreground or after 30 seconds; stopping sends trailing silence so an
+  injected Pi VAD can finish an utterance.
 - The token remains in memory only and is not saved by the app.
 - The token starts masked and includes an accessible eye control to reveal or
   hide it while entering.
 - View a permission status list. Sensitive permissions are not requested at
-  startup; Bluetooth, microphone, notification access, and Accessibility
-  remain unrequested until their user-facing features are implemented.
+  startup; microphone permission is requested only when starting capture,
+  while Bluetooth, notification access, and Accessibility are not requested.
 
 Run `python -m app.setup --host <PI_PRIVATE_IPV4>` on the Pi once to create the
 connection address and token, as described in [SETUP_PI.md](./SETUP_PI.md).
@@ -62,13 +68,17 @@ example address as a real device configuration.
 - BLE scanning/GATT, secure bootstrap-key exchange, pairing confirmation, and
   Wi-Fi credential handoff.
 - Token persistence or automatic reconnect after process death.
-- Voice input, NotificationListenerService, or Accessibility automation.
-- Sending commands, notifications, or phone actions. The current connection
-  supports authentication, heartbeat, and Pi-to-phone speech responses only.
+- An always-on background wake-word service; microphone capture is explicit
+  and stops when the app leaves the foreground.
+- Production Pi-side wake-word, VAD, speech-recognition, intent, or task
+  adapters. The Android app sends microphone audio, but the default Pi server
+  does not configure a voice message handler.
+- NotificationListenerService, Accessibility automation, and sending
+  commands/notifications or triggering phone actions.
 
 The Python and Android provisioning codecs share a cross-language test vector,
 but the complete provisioning flow is not ready. Do not enter or transfer real
 Wi-Fi credentials. Grant permissions only when the related feature is
-implemented and you choose to enable it; the app must not request every
+available and you choose to enable it; the app must not request every
 permission at startup. The status dashboard is a separate diagnostic page,
 not the Android app or a replacement for its connection UI.

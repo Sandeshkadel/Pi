@@ -11,9 +11,10 @@ processing, local task/memory foundations, and a native Android connection UI
 for private-network authentication, heartbeat checks, and Pi-to-phone speech
 responses through an installed offline phone voice. BLE credential-envelope
 codecs exist on Python and Android and share a cross-language test vector.
-Real BLE pairing, Pi-side production voice input/speech adapters, notifications,
-phone automation, and Pi deployment are not complete. The default WebSocket
-app still has no command/notification handler.
+Phone microphone streaming is implemented, but real BLE pairing, Pi-side
+production voice adapters, notifications, phone automation, and Pi deployment
+are not complete. The default WebSocket app has no command/notification
+handler or configured voice adapters.
 
 ## Safety and privacy
 
@@ -55,10 +56,12 @@ without a configured token intentionally rejects WebSocket connections.
 Open `android-app/` in Android Studio with Android SDK 35 installed, then run
 the `app` configuration on an Android 10+ device or emulator. It can connect
 to the authenticated local WebSocket heartbeat when a Pi endpoint and token
-are configured. It does not yet support BLE pairing, voice input,
-notifications, or phone actions. It can speak Pi responses and a configurable
-ready cue using the phone's installed offline TTS voice. Permissions are
-listed in-app and are requested only when
+are configured. With explicit in-app microphone permission, it can stream
+16 kHz audio from the phone mic to the Pi while capture is active and speak Pi
+responses through the phone speaker using its installed offline TTS voice.
+The standard Pi server still needs voice model adapters configured to process
+audio. BLE pairing, notifications, and phone actions are not implemented.
+Permissions are listed in-app and requested only when
 their features are available. Do not send real Wi-Fi credentials; pairing and
 credential handoff are not implemented.
 

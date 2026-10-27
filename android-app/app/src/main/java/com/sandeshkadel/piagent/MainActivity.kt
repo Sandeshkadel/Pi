@@ -1,9 +1,15 @@
 package com.sandeshkadel.piagent
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -47,11 +53,16 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.sandeshkadel.piagent.connection.AgentConnectionClient
 import com.sandeshkadel.piagent.connection.ConnectionEndpoint
 import com.sandeshkadel.piagent.connection.ConnectionState
 import com.sandeshkadel.piagent.connection.SpeakMessage
 import com.sandeshkadel.piagent.voice.AgentSpeechPlayer
+import com.sandeshkadel.piagent.voice.CaptureEndReason
+import com.sandeshkadel.piagent.voice.PhoneMicrophoneCapture
 import com.sandeshkadel.piagent.voice.SpeechTuning
 import com.sandeshkadel.piagent.voice.SpeechOutputState
 import java.util.Locale
@@ -73,19 +84,12 @@ class MainActivity : ComponentActivity() {
                     PiAgentHome(
                         speechState = speechState,
                         speechPlayer = speechPlayer,
-                        onCreateConnection = { onState, onSpeech ->
+                        onCreateConnection = { onState, onSpeech, onListening, onProtocolError ->
                             AgentConnectionClient(
-                                onStateChanged = { nextState ->
-                                    runOnUiThread {
-                                        onState(nextState)
-                                        if (!nextState.isConnected && !nextState.isConnecting) {
-                                            speechPlayer.stop()
-                                        }
-                                    }
-                                },
-                                onSpeechReceived = { message ->
-                                    runOnUiThread { onSpeech(message) }
-                                },
+                                onStateChanged = onState,
+                                onSpeechReceived = onSpeech,
+                                onListening = onListening,
+                                onProtocolError = onProtocolError,
                             )
                         },
                     )
@@ -102,6 +106,8 @@ private fun PiAgentHome(
     onCreateConnection: (
         (ConnectionState) -> Unit,
         (SpeakMessage) -> Unit,
+        () -> Unit,
+        (String, String) -> Unit,
     ) -> AgentConnectionClient,
 ) {
     var endpoint by remember { mutableStateOf("") }
@@ -115,6 +121,13 @@ private fun PiAgentHome(
     val tokenFocusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
+    val microphoneCapture = remember(context) { PhoneMicrophoneCapture(context) }
+    var microphoneRecording by remember { mutableStateOf(false) }
+    var microphoneStatus by remember {
+        mutableStateOf("Connect to your Pi before starting microphone capture.")
+    }
     val voicePreferences = remember(context) {
         context.getSharedPreferences(VOICE_PREFERENCES, Context.MODE_PRIVATE)
     }
@@ -137,8 +150,34 @@ private fun PiAgentHome(
     }
     val client = remember {
         onCreateConnection(
-            { connectionState = it },
+            { nextState ->
+                mainHandler.post {
+                    connectionState = nextState
+                    if (!nextState.isConnected && !nextState.isConnecting) {
+                        speechPlayer.stop()
+                        val wasRecording = microphoneCapture.isRecording
+                        microphoneCapture.stop(sendEndOfAudio = false)
+                        microphoneRecording = false
+                        if (wasRecording) {
+                            microphoneStatus =
+                                "Microphone stopped because the Pi disconnected."
+                        }
+                    }
+                }
+            },
             { message -> speechPlayer.speak(message.text, message.interrupt) },
+            {
+                mainHandler.post {
+                    microphoneStatus = "Pi heard “Hey Pi”. Say your command, then tap Stop."
+                }
+            },
+            { _, detail ->
+                mainHandler.post {
+                    microphoneCapture.stop(sendEndOfAudio = false)
+                    microphoneRecording = false
+                    microphoneStatus = detail
+                }
+            },
         )
     }
 
@@ -147,6 +186,23 @@ private fun PiAgentHome(
     }
     DisposableEffect(speechPlayer) {
         onDispose { speechPlayer.close() }
+    }
+    DisposableEffect(lifecycleOwner, microphoneCapture) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                val wasRecording = microphoneCapture.isRecording
+                microphoneCapture.stop(sendEndOfAudio = false)
+                microphoneRecording = false
+                if (wasRecording) {
+                    microphoneStatus = "Microphone stopped when PiAgent left the screen."
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            microphoneCapture.stop(sendEndOfAudio = false)
+        }
     }
     LaunchedEffect(tuning) {
         speechPlayer.setTuning(tuning)
@@ -163,6 +219,52 @@ private fun PiAgentHome(
     LaunchedEffect(connectionState.isConnected, speakConnectionCue) {
         if (connectionState.isConnected && speakConnectionCue) {
             speechPlayer.speak("Pi is connected and ready.", interrupt = false)
+        }
+    }
+    val startMicrophone: () -> Unit = {
+        if (!connectionState.isConnected) {
+            microphoneStatus = "Connect to your Pi before starting microphone capture."
+        } else {
+            try {
+                microphoneCapture.start(
+                    onAudioFrame = client::sendAudioFrame,
+                    onCaptureEnded = { reason ->
+                        val sent = client.sendEndOfAudio()
+                        mainHandler.post {
+                            microphoneRecording = false
+                            microphoneStatus = if (!sent) {
+                                "The Pi connection ended before audio could be finalized."
+                            } else if (reason == CaptureEndReason.DURATION_LIMIT) {
+                                "The 30-second microphone limit was reached; waiting for Pi."
+                            } else {
+                                "Audio sent. Waiting for the Pi voice processor."
+                            }
+                        }
+                    },
+                    onFailure = { detail ->
+                        mainHandler.post {
+                            microphoneRecording = false
+                            microphoneStatus = detail
+                        }
+                    },
+                )
+                microphoneRecording = true
+                microphoneStatus =
+                    "Microphone is on. Say “Hey Pi” and your command, then tap Stop."
+            } catch (error: IllegalStateException) {
+                microphoneStatus = error.message ?: "Phone microphone capture could not start."
+            } catch (error: SecurityException) {
+                microphoneStatus = error.message ?: "Allow microphone access to use voice input."
+            }
+        }
+    }
+    val microphonePermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            startMicrophone()
+        } else {
+            microphoneStatus = "Microphone permission was denied. Voice input is off."
         }
     }
 
@@ -183,6 +285,26 @@ private fun PiAgentHome(
         }
 
         ConnectionStatusCard(connectionState)
+
+        MicrophoneCaptureCard(
+            connected = connectionState.isConnected,
+            recording = microphoneRecording,
+            status = microphoneStatus,
+            onToggle = {
+                if (microphoneRecording) {
+                    microphoneCapture.stop()
+                    microphoneRecording = false
+                    microphoneStatus = "Finishing audio and sending it to the Pi."
+                } else if (
+                    context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) ==
+                    PackageManager.PERMISSION_GRANTED
+                ) {
+                    startMicrophone()
+                } else {
+                    microphonePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                }
+            },
+        )
 
         Card {
             Column(
@@ -339,8 +461,14 @@ private fun PiAgentHome(
             )
             PermissionStatusRow(
                 title = "Microphone",
-                status = "Not requested",
-                detail = "Needed only for voice capture; speaking replies uses no microphone.",
+                status = when {
+                    microphoneRecording -> "In use"
+                    context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) ==
+                        PackageManager.PERMISSION_GRANTED -> "Allowed"
+                    else -> "Ask on use"
+                },
+                detail = "Used only while you start voice capture; capture stops when the app " +
+                    "leaves the screen. Speech replies use the phone speaker.",
             )
             PermissionStatusRow(
                 title = "Notifications",
@@ -360,14 +488,56 @@ private fun PiAgentHome(
             ),
         ) {
             Text(
-                "Pi voice replies are spoken using an installed offline phone voice. " +
-                    "Voice capture, BLE pairing, notifications, and phone actions are not enabled yet.",
+                "Voice input streams 16 kHz microphone audio to the Pi while capture is active. " +
+                    "The standard Pi server still needs local wake-word, VAD, and speech-recognition " +
+                    "adapters configured. BLE, notifications, and phone actions are not enabled.",
                 modifier = Modifier.padding(16.dp),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSecondaryContainer,
             )
         }
         Spacer(Modifier.height(4.dp))
+    }
+}
+
+@Composable
+private fun MicrophoneCaptureCard(
+    connected: Boolean,
+    recording: Boolean,
+    status: String,
+    onToggle: () -> Unit,
+) {
+    Card {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("Phone microphone", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Tap Start, say “Hey Pi” and your command, then tap Stop. Audio streams to the " +
+                    "authenticated Pi over WebSocket and is not saved by the app.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                status,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (recording) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+            Button(
+                onClick = onToggle,
+                enabled = connected,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(if (recording) "Stop microphone" else "Start microphone")
+            }
+        }
     }
 }
 

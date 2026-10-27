@@ -12,13 +12,22 @@ utterances.
 The state machine supports the agent states in the system design and rejects
 illegal transitions. `create_voice_message_handler_factory` provides
 per-WebSocket-session integration for injected adapters; the default
-application does not configure a production voice handler. The Android app
-speaks validated Pi `speak` messages through its installed system TTS engine.
+application does not configure a production voice handler. From its connected
+screen, Android asks for microphone permission when capture starts and streams
+100 ms, 16 kHz mono PCM chunks over the authenticated WebSocket. Capture ends
+on user stop, app backgrounding, disconnect, or a 30-second limit. User stop
+adds bounded trailing silence to trigger VAD finalization. The app does not
+save microphone audio. Android speaks validated Pi `speak` messages through
+its installed system TTS engine.
 It selects the highest-quality voice available offline for the device language
 (English as fallback), and does not send speech text to a network voice. If no
 offline voice is installed, the app reports that rather than silently using a
-cloud voice. This is voice output only: Android microphone capture and a
-production Pi wake-word/VAD/STT adapter are not implemented.
+cloud voice. Phone microphone streaming is implemented, but the default Pi app
+has no configured wake-word detector, VAD, speech recognizer, intent router,
+or task handler. A real spoken request therefore is not processed by the
+default server until local adapters are configured. There is no always-on
+background wake-word service; microphone capture is explicitly started by the
+user and stops when the app leaves the foreground.
 
 ## Voicebox evaluation
 
